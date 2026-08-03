@@ -9,6 +9,18 @@ from core import KLayoutVerifier, PCell
 from core.verification import _RUNNER
 
 
+def test_gf180_uses_standalone_deck_instead_of_python_launcher(tmp_path: Path):
+    macro = tmp_path / "tech" / "macros" / "gf180mcu_drc.lydrc"
+    launcher = tmp_path / "tech" / "drc" / "run_drc.py"
+    deck = tmp_path / "tech" / "drc" / "gf180mcu.drc"
+    component = tmp_path / "tech" / "drc" / "rule_decks" / "antenna.drc"
+    for path in (macro, launcher, deck, component):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    assert KLayoutVerifier(str(tmp_path))._deck() == deck
+
+
 def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path: Path):
     pdk_root = tmp_path / "pdk"
     pdk_root.mkdir()
@@ -47,7 +59,18 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     assert str(Path(sysconfig.get_path("stdlib")).resolve()) not in python_paths
     assert any("site-packages" in path for path in python_paths)
     assert calls[1][1]["env"] is generation_options["env"]
-    assert calls[1][0][-2:] == ["-rd", "topcell=VERIFY_TOP"]
+    drc_command = calls[1][0]
+    assert [
+        drc_command[index + 1]
+        for index, argument in enumerate(drc_command)
+        if argument == "-rd"
+    ] == [
+        f"input={output_root / 'Device_0001.gds'}",
+        f"report={output_root / 'Device_0001.lyrdb'}",
+        "topcell=VERIFY_TOP",
+        "cell_name=VERIFY_TOP",
+        "cell=VERIFY_TOP",
+    ]
     assert results[0].passed
 
 

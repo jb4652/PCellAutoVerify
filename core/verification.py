@@ -82,8 +82,16 @@ class KLayoutVerifier:
 
     def _deck(self) -> Path | None:
         decks = sorted(self.pdk_root.rglob("*.lydrc"))
+        # GF180's .lydrc is a GUI launcher for run_drc.py.  Running that
+        # launcher inside KLayout requires ``docopt`` to be installed for
+        # KLayout's embedded (and potentially different) Python interpreter.
+        # Execute the standalone rule deck directly instead; this is also the
+        # same deck eventually selected by the launcher.
+        standalone = sorted(self.pdk_root.rglob("*.drc"))
+        if decks and standalone and any(self.pdk_root.rglob("run_drc.py")):
+            return min(standalone, key=lambda path: (len(path.parts), str(path)))
         if not decks:
-            decks = sorted(self.pdk_root.rglob("*drc*.drc"))
+            decks = standalone
         return decks[0] if decks else None
 
     @staticmethod
@@ -171,14 +179,28 @@ class KLayoutVerifier:
                 continue
             if deck is None:
                 results.append(VerificationResult(
-                    index, point, False, "No KLayout DRC deck (*.lydrc) found",
+                    index, point, False, "No KLayout DRC deck (*.lydrc or *.drc) found",
                     str(layout), str(preview) if preview.exists() else "",
                 ))
                 continue
             report = self.output_root / f"{pcell.name}_{index:04d}.lyrdb"
+            # Rule decks do not agree on the runtime-data name used for the
+            # selected cell.  In particular, GF180's component decks read
+            # ``cell_name`` while other open-PDK decks use ``topcell`` or
+            # ``cell``.  Supplying all three aliases is harmless to KLayout
+            # and prevents source(input, "") from looking up an empty cell.
+            runtime_data = (
+                ("input", layout),
+                ("report", report),
+                ("topcell", "VERIFY_TOP"),
+                ("cell_name", "VERIFY_TOP"),
+                ("cell", "VERIFY_TOP"),
+            )
+            drc_arguments = [executable, "-b", "-r", str(deck)]
+            for name, value in runtime_data:
+                drc_arguments.extend(("-rd", f"{name}={value}"))
             checked = subprocess.run(
-                [executable, "-b", "-r", str(deck), "-rd", f"input={layout}",
-                 "-rd", f"report={report}", "-rd", "topcell=VERIFY_TOP"],
+                drc_arguments,
                 capture_output=True, text=True, timeout=300,
                 cwd=self.pdk_root, env=environment,
             )
