@@ -15,7 +15,15 @@ from pathlib import Path
 from .models import PCell, VerificationResult
 
 
-_RUNNER = r'''import importlib, json, os, re, runpy, sys, pya
+_RUNNER = r'''import importlib, json, os, re, runpy, sys
+try:
+    import pya
+except ModuleNotFoundError:
+    # The PyPI KLayout package exposes its API as ``klayout.db`` rather than
+    # ``pya``.  Register the traditional name too, since PDK PCells commonly
+    # import it directly.
+    import klayout.db as pya
+    sys.modules["pya"] = pya
 # PYTHONPATH is inherited from the GUI process so that PCells can import their
 # dependencies. KLayout can, however, embed a different Python minor version.
 # Never let (for example) python3.11/site-packages shadow KLayout's native
@@ -169,8 +177,13 @@ class KLayoutVerifier:
                 "PCELL_VERIFY_OUTPUT": str(layout),
                 "PCELL_VERIFY_PREVIEW": str(preview),
             })
+            # Instantiate with the application's interpreter.  KLayout's
+            # embedded Python can have a different minor version and therefore
+            # cannot load binary dependencies (notably NumPy) installed for
+            # the application.  The ``klayout`` Python package provides the
+            # same layout API without crossing that interpreter boundary.
             generated = subprocess.run(
-                [executable, "-b", "-r", str(runner)],
+                [sys.executable, str(runner)],
                 capture_output=True, text=True, timeout=120, env=environment,
             )
             if generated.returncode or not layout.exists():

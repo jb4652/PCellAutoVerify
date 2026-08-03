@@ -31,7 +31,7 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
 
     def run(command, **kwargs):
         calls.append((command, kwargs))
-        if Path(command[command.index("-r") + 1]).name == "instantiate.py":
+        if Path(command[-1]).name == "instantiate.py":
             Path(kwargs["env"]["PCELL_VERIFY_OUTPUT"]).write_text("layout", encoding="utf-8")
         else:
             report_argument = command[command.index("-rd", command.index("-rd") + 1) + 1]
@@ -46,9 +46,7 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
         )
 
     generation_command, generation_options = calls[0]
-    assert generation_command == [
-        "/usr/bin/klayout", "-b", "-r", str(output_root / "instantiate.py")
-    ]
+    assert generation_command == [sys.executable, str(output_root / "instantiate.py")]
     assert "--" not in generation_command
     assert generation_options["env"]["PCELL_VERIFY_CLASS"] == "Device"
     assert generation_options["env"]["PCELL_VERIFY_PARAMETERS"] == '{"width": 1.5}'
