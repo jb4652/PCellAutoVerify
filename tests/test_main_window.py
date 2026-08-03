@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolBar
 
 from core import PCell, PDK, Parameter
 from database import PDKDatabase
@@ -36,6 +36,16 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path):
     database.activate(pdk_id)
     window = MainWindow(database)
 
+    assert [action.text() for action in window.menuBar().actions()] == [
+        "&File",
+        "&Verification",
+        "&View",
+        "&Help",
+    ]
+    toolbar = window.findChild(QToolBar, "verificationToolbar")
+    assert toolbar is not None
+    assert "Run Verify" in [action.text() for action in toolbar.actions()]
+
     root = window.cells.topLevelItem(0)
     assert root.text(0) == "sky130"
     assert root.isExpanded()
@@ -53,6 +63,7 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path):
         lambda cell, points: requested.append((cell, points))
     )
     window.cells.setCurrentItem(cell_item)
+    assert window.generate_action.isEnabled()
     window.generate_points()
     assert window.verify_button.isEnabled()
     window.verify()
