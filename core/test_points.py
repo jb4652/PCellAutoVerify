@@ -95,8 +95,19 @@ def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]
     if limit <= 0 or not pcell.parameters:
         return []
 
-    candidates = [parameter_values(parameter) for parameter in pcell.parameters]
-    candidates = [values or [""] for values in candidates]
+    # A blank scanner default means that the source expression could not be
+    # evaluated statically; it does not mean that the PCell should receive an
+    # empty string.  Leave such parameters out so KLayout uses the declaration's
+    # own runtime default.  Passing ``""`` to a numeric TypeDouble/TypeInt is a
+    # common cause of failures in ``coerce_parameters_impl``.
+    concrete = [
+        (parameter, values)
+        for parameter in pcell.parameters
+        if (values := parameter_values(parameter))
+    ]
+    if not concrete:
+        return [{}]
+    parameters, candidates = zip(*concrete)
     total = math.prod(len(values) for values in candidates)
     combinations = itertools.product(*candidates)
     if total <= limit:
@@ -105,6 +116,6 @@ def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]
         wanted = {round(i * (total - 1) / (limit - 1)) for i in range(limit)}
         selected = (values for index, values in enumerate(combinations) if index in wanted)
     return [
-        {parameter.name: value for parameter, value in zip(pcell.parameters, values)}
+        {parameter.name: value for parameter, value in zip(parameters, values)}
         for values in selected
     ]

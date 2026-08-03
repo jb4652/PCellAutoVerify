@@ -22,6 +22,10 @@ class OpenPDKsPlugin(PDKPlugin):
     @staticmethod
     def _inferred_range(name: str, default: str) -> str:
         """Supply useful conservative values when source constraints are absent."""
+        if not default:
+            # An unparseable expression is represented by a blank scanner
+            # default and must remain distinct from the literal string ``''``.
+            return ""
         try:
             value = ast.literal_eval(default)
         except (ValueError, SyntaxError):
@@ -40,7 +44,7 @@ class OpenPDKsPlugin(PDKPlugin):
             return f"choices={[base * 0.5, base, base * 2.0]}"
         if isinstance(value, str):
             return f"choices=[{value!r}]"
-        return f"choices=[{default}]" if default else "choices=['']"
+        return f"choices=[{default}]"
 
     def supports(self, root: Path) -> bool:
         if not root.is_dir():
