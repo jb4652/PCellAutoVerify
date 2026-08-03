@@ -45,6 +45,10 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path):
     toolbar = window.findChild(QToolBar, "verificationToolbar")
     assert toolbar is not None
     assert "Run Verify" in [action.text() for action in toolbar.actions()]
+    toolbar_buttons = [
+        action for action in toolbar.actions() if not action.isSeparator()
+    ]
+    assert all(not action.icon().isNull() for action in toolbar_buttons)
 
     root = window.cells.topLevelItem(0)
     assert root.text(0) == "sky130"

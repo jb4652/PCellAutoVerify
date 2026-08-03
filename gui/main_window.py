@@ -74,9 +74,21 @@ class MainWindow(QMainWindow):
             self,
         )
         self.reload_action.triggered.connect(self.reload)
-        self.generate_action = QAction("Generate Points", self)
+        self.generate_action = QAction(
+            self.style().standardIcon(
+                self.style().StandardPixmap.SP_FileDialogNewFolder
+            ),
+            "Generate Points",
+            self,
+        )
         self.generate_action.triggered.connect(self.generate_points)
-        self.view_points_action = QAction("View Points", self)
+        self.view_points_action = QAction(
+            self.style().standardIcon(
+                self.style().StandardPixmap.SP_FileDialogContentsView
+            ),
+            "View Points",
+            self,
+        )
         self.view_points_action.triggered.connect(self.view_points)
         self.verify_action = QAction(
             self.style().standardIcon(self.style().StandardPixmap.SP_DialogApplyButton),
@@ -84,7 +96,13 @@ class MainWindow(QMainWindow):
             self,
         )
         self.verify_action.triggered.connect(self.verify)
-        self.results_action = QAction("Verification Results", self)
+        self.results_action = QAction(
+            self.style().standardIcon(
+                self.style().StandardPixmap.SP_FileDialogDetailedView
+            ),
+            "Verification Results",
+            self,
+        )
         self.results_action.triggered.connect(self.view_results)
         for action in (self.manager_action, self.reload_action):
             toolbar.addAction(action)
