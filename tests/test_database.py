@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from pcell_auto_verify.database import PDKDatabase
-from pcell_auto_verify.models import PCell, PDK, Parameter
+from core import PCell, PDK, Parameter
+from database import PDKDatabase
 
 
 def test_round_trip_activate_and_remove(tmp_path: Path):
@@ -18,4 +18,3 @@ def test_round_trip_activate_and_remove(tmp_path: Path):
     assert [p.name for p in database.list_pdks() if p.active] == ["gf180"]
     database.remove(first_id)
     assert [p.name for p in database.list_pdks()] == ["gf180"]
-

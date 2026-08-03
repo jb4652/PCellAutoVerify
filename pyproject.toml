@@ -10,11 +10,14 @@ requires-python = ">=3.10"
 dependencies = ["PySide6>=6.6"]
 
 [project.scripts]
-pcell-auto-verify = "pcell_auto_verify.app:main"
+pcell-auto-verify = "core.application:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["core*", "database*", "gui*", "plugins*"]
+
+[tool.setuptools]
+py-modules = ["main"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
-
+pythonpath = ["."]

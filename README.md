@@ -8,8 +8,10 @@ PCell Auto Verify 是一个基于 PySide6 的 PDK/PCell 桌面管理工具原型
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-pcell-auto-verify
+python main.py
 ```
+
+安装后仍可使用 `pcell-auto-verify` 命令启动。
 
 点击工具栏 **PDK Manager**，选择 **Import PDK...** 并指向 PDK 根目录。首版内置 `open-pdks` 插件，支持 fossi-foundation/open-pdks 源码树，以及含 `sky130`、`gf180mcu`、`ihp-sg13g2` 标识的安装树。插件静态扫描 Python PCell 定义，不会执行 PDK 中的代码。导入信息默认保存在系统应用数据目录下的 SQLite 数据库中。
 
@@ -20,5 +22,15 @@ pip install pytest
 pytest
 ```
 
-新的 PDK 格式可通过实现 `PDKPlugin` 并注册到 `PluginRegistry` 扩展。
+## 目录结构
 
+```text
+main.py       # 直接运行的程序入口
+core/         # 领域模型和应用初始化
+database/     # SQLite 持久化
+gui/          # PySide6 窗口与对话框
+plugins/      # PDK 插件协议、实现和注册中心
+tests/        # 自动化测试
+```
+
+各层通过公开的 `__init__.py` 接口协作，界面、数据库和扫描逻辑不再集中在同一包中。新的 PDK 格式可通过实现 `plugins.PDKPlugin` 并注册到 `plugins.PluginRegistry` 扩展。

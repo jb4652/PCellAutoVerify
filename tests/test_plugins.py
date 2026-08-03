@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pcell_auto_verify.plugins import PluginRegistry
+from plugins import PluginRegistry
 
 
 def test_open_pdks_scans_klayout_style_pcell(tmp_path: Path):
