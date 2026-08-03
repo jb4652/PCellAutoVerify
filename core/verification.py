@@ -15,7 +15,17 @@ from pathlib import Path
 from .models import PCell, VerificationResult
 
 
-_RUNNER = r'''import importlib, json, os, runpy, sys, pya
+_RUNNER = r'''import importlib, json, os, re, runpy, sys, pya
+# PYTHONPATH is inherited from the GUI process so that PCells can import their
+# dependencies. KLayout can, however, embed a different Python minor version.
+# Never let (for example) python3.11/site-packages shadow KLayout's native
+# python3.12 packages: extension modules such as NumPy cannot be loaded by the
+# other interpreter.
+def compatible_path(path):
+    versions = re.findall(r"(?:^|[/\\])python(\d+)\.(\d+)(?:[/\\]|$)", path)
+    return all((int(major), int(minor)) == sys.version_info[:2]
+               for major, minor in versions)
+sys.path[:] = [path for path in sys.path if compatible_path(path)]
 source = os.environ["PCELL_VERIFY_SOURCE"]
 class_name = os.environ["PCELL_VERIFY_CLASS"]
 parameters = os.environ["PCELL_VERIFY_PARAMETERS"]
@@ -112,6 +122,9 @@ class KLayoutVerifier:
         paths = [path for path in paths if safe_for_embedded_python(path)]
         # KLayout embeds a separate Python interpreter, so an activated virtual
         # environment's site-packages is not necessarily on its import path.
+        # The runner removes paths belonging to a different Python minor after
+        # it starts inside KLayout; that decision cannot be made in this host
+        # process because the two programs may use different interpreters.
         environment["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(paths))
         return environment
 

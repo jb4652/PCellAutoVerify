@@ -124,3 +124,49 @@ def test_pcell_runner_loads_source_with_package_context(tmp_path: Path):
 
     assert completed.returncode == 0, completed.stderr
     assert output.read_text(encoding="utf-8") == "layout"
+
+
+def test_pcell_runner_removes_paths_for_an_incompatible_python(tmp_path: Path):
+    incompatible = tmp_path / "lib" / "python9.9" / "site-packages"
+    incompatible.mkdir(parents=True)
+    source = tmp_path / "device.py"
+    source.write_text(
+        "import sys\n"
+        "class Device:\n"
+        f"    incompatible_path_visible = {str(incompatible)!r} in sys.path\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pya.py").write_text(
+        "class Cell:\n"
+        "    def cell_index(self): return 1\n"
+        "class Top:\n"
+        "    def insert(self, instance): pass\n"
+        "class Layout:\n"
+        "    def register_pcell(self, name, declaration):\n"
+        "        assert not declaration.incompatible_path_visible\n"
+        "    def create_cell(self, name, values=None):\n"
+        "        return Top() if name == 'VERIFY_TOP' else Cell()\n"
+        "    def write(self, output): open(output, 'w').write('layout')\n"
+        "class CellInstArray:\n"
+        "    def __init__(self, *args): pass\n"
+        "class Trans: pass\n",
+        encoding="utf-8",
+    )
+    runner = tmp_path / "instantiate.py"
+    runner.write_text(_RUNNER, encoding="utf-8")
+    output = tmp_path / "output.gds"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join([str(tmp_path), str(incompatible)])
+    environment.update({
+        "PCELL_VERIFY_SOURCE": str(source),
+        "PCELL_VERIFY_CLASS": "Device",
+        "PCELL_VERIFY_PARAMETERS": "{}",
+        "PCELL_VERIFY_OUTPUT": str(output),
+    })
+
+    completed = subprocess.run(
+        [sys.executable, str(runner)], capture_output=True, text=True, env=environment
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert output.read_text(encoding="utf-8") == "layout"
