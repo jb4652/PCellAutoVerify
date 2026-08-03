@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -75,7 +76,15 @@ class KLayoutVerifier:
 
     @staticmethod
     def _environment() -> dict[str, str]:
-        """Expose the application's installed packages to KLayout's Python."""
+        """Expose installed packages without replacing KLayout's standard library.
+
+        KLayout may embed a different Python patch or minor version from the
+        application.  Adding the application's standard-library directory to
+        ``PYTHONPATH`` can then make Python modules such as :mod:`re` disagree
+        with KLayout's built-in extension modules (reported as an ``SRE module
+        mismatch``).  Project and site-package paths are useful to PCells, but
+        the host interpreter's standard-library paths must be left out.
+        """
         environment = os.environ.copy()
         paths = [path for path in sys.path if path]
         paths.extend(
@@ -83,6 +92,24 @@ class KLayoutVerifier:
             for path in environment.get("PYTHONPATH", "").split(os.pathsep)
             if path
         )
+        standard_library = {
+            Path(path).resolve()
+            for key in ("stdlib", "platstdlib")
+            if (path := sysconfig.get_path(key))
+        }
+
+        def safe_for_embedded_python(path: str) -> bool:
+            resolved = Path(path).resolve()
+            # site-packages commonly lives below the stdlib directory, but it
+            # contains third-party dependencies rather than interpreter files.
+            if any(part in {"site-packages", "dist-packages"} for part in resolved.parts):
+                return True
+            return not any(
+                resolved == root or root in resolved.parents
+                for root in standard_library
+            )
+
+        paths = [path for path in paths if safe_for_embedded_python(path)]
         # KLayout embeds a separate Python interpreter, so an activated virtual
         # environment's site-packages is not necessarily on its import path.
         environment["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(paths))
