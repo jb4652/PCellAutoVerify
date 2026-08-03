@@ -15,6 +15,8 @@ python main.py
 
 点击工具栏 **PDK Manager**，选择 **Import PDK...** 并指向 PDK 根目录。首版内置 `open-pdks` 插件，支持 fossi-foundation/open-pdks 源码树，以及含 `sky130`、`gf180mcu`、`ihp-sg13g2` 标识的安装树。插件静态扫描 Python PCell 定义，不会执行 PDK 中的代码。导入信息默认保存在系统应用数据目录下的 SQLite 数据库中。
 
+激活 PDK 后，从左侧选择一个 PCell。右侧的 **Range / Choices** 可直接编辑，支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。点击 **Generate Test Points** 会生成基准点以及逐参数的边界/选项变化（避免全排列爆炸），再通过右上角 **View Test Points** 查看结果；没有范围时使用参数默认值。
+
 ## 开发
 
 ```bash
