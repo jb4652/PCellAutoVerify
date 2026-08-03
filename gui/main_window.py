@@ -159,8 +159,9 @@ class MainWindow(QMainWindow):
         header.addWidget(self.results_button)
         right_layout.addLayout(header)
         range_help = QLabel(
-            "Edit Range / Choices using min=…, max=…; choices=[…]; or low..high. "
-            "Blank ranges use the default value."
+            "Defaults and Range / Choices are editable. Use min=…, max=…; "
+            "choices=[…]; or low..high. A blank, unresolved default is omitted "
+            "so the PCell can use its native runtime default."
         )
         range_help.setWordWrap(True)
         right_layout.addWidget(range_help)
@@ -279,7 +280,7 @@ class MainWindow(QMainWindow):
             values = (parameter.name, parameter.default, parameter.value_range)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if column < 2:
+                if column == 0:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.parameters.setItem(index, column, item)
         self.parameters.blockSignals(False)
@@ -287,9 +288,13 @@ class MainWindow(QMainWindow):
 
     def _range_changed(self, item: QTableWidgetItem) -> None:
         row = self._selected_cell_index()
-        if item.column() != 2 or row < 0 or row >= len(self.current_cells):
+        if item.column() not in (1, 2) or row < 0 or row >= len(self.current_cells):
             return
-        self.current_cells[row].parameters[item.row()].value_range = item.text()
+        parameter = self.current_cells[row].parameters[item.row()]
+        if item.column() == 1:
+            parameter.default = item.text()
+        else:
+            parameter.value_range = item.text()
         self.test_points.pop(row, None)
         self.verification_results.pop(row, None)
         self.view_button.setEnabled(False)

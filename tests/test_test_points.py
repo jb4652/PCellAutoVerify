@@ -32,3 +32,16 @@ def test_numeric_parameters_without_constraints_get_concrete_ranges():
     assert inferred_range(Parameter("width", "1.0")) == "min=0.5, max=2"
     assert inferred_range(Parameter("fingers", "4")) == "min=2, max=8"
     assert parameter_values(Parameter("width", "1.0")) == ["0.5", "2"]
+
+
+def test_unresolved_parameters_are_omitted_instead_of_sent_as_empty_strings():
+    pcell = PCell(
+        "MimCap",
+        "cap_mim.py",
+        [Parameter("metal_level", "'M2'"), Parameter("width"), Parameter("length")],
+    )
+
+    assert generate_test_points(pcell) == [{"metal_level": "'M2'"}]
+    assert generate_test_points(
+        PCell("NativeDefaults", "device.py", [Parameter("width")])
+    ) == [{}]

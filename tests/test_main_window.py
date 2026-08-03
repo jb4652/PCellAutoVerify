@@ -64,6 +64,10 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path):
     )
     window.cells.setCurrentItem(cell_item)
     assert window.generate_action.isEnabled()
+    default_item = window.parameters.item(0, 1)
+    assert default_item.flags() & Qt.ItemFlag.ItemIsEditable
+    default_item.setText("1.5")
+    assert window.current_cells[0].parameters[0].default == "1.5"
     window.generate_points()
     assert window.verify_button.isEnabled()
     window.verify()
