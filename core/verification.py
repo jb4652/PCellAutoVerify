@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -72,6 +73,21 @@ class KLayoutVerifier:
                 values[key] = value
         return values
 
+    @staticmethod
+    def _environment() -> dict[str, str]:
+        """Expose the application's installed packages to KLayout's Python."""
+        environment = os.environ.copy()
+        paths = [path for path in sys.path if path]
+        paths.extend(
+            path
+            for path in environment.get("PYTHONPATH", "").split(os.pathsep)
+            if path
+        )
+        # KLayout embeds a separate Python interpreter, so an activated virtual
+        # environment's site-packages is not necessarily on its import path.
+        environment["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(paths))
+        return environment
+
     def verify(self, pcell: PCell, points: list[dict[str, str]]) -> list[VerificationResult]:
         executable = shutil.which("klayout")
         if not executable:
@@ -84,7 +100,7 @@ class KLayoutVerifier:
         results: list[VerificationResult] = []
         for index, point in enumerate(points, 1):
             layout = self.output_root / f"{pcell.name}_{index:04d}.gds"
-            environment = os.environ.copy()
+            environment = self._environment()
             environment.update({
                 "PCELL_VERIFY_SOURCE": str(source),
                 "PCELL_VERIFY_CLASS": pcell.name,
@@ -106,7 +122,7 @@ class KLayoutVerifier:
             checked = subprocess.run(
                 [executable, "-b", "-r", str(deck), "-rd", f"input={layout}",
                  "-rd", f"report={report}"], capture_output=True, text=True, timeout=300,
-                cwd=self.pdk_root,
+                cwd=self.pdk_root, env=environment,
             )
             violations = report.read_text(encoding="utf-8", errors="ignore").count("<item>") if report.exists() else 0
             passed = checked.returncode == 0 and report.exists() and violations == 0
