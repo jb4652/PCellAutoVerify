@@ -13,12 +13,24 @@ from pathlib import Path
 from .models import PCell, VerificationResult
 
 
-_RUNNER = r'''import json, os, runpy, pya
+_RUNNER = r'''import importlib, json, os, runpy, sys, pya
 source = os.environ["PCELL_VERIFY_SOURCE"]
 class_name = os.environ["PCELL_VERIFY_CLASS"]
 parameters = os.environ["PCELL_VERIFY_PARAMETERS"]
 output = os.environ["PCELL_VERIFY_OUTPUT"]
-namespace = runpy.run_path(source)
+source_path = os.path.abspath(source)
+package_parts = []
+package_dir = os.path.dirname(source_path)
+while os.path.isfile(os.path.join(package_dir, "__init__.py")):
+    package_parts.insert(0, os.path.basename(package_dir))
+    package_dir = os.path.dirname(package_dir)
+if package_parts:
+    sys.path.insert(0, package_dir)
+    source_module = os.path.splitext(os.path.basename(source_path))[0]
+    module_name = ".".join(package_parts + ([] if source_module == "__init__" else [source_module]))
+    namespace = vars(importlib.import_module(module_name))
+else:
+    namespace = runpy.run_path(source_path)
 cls = namespace.get(class_name)
 if cls is None:
     raise RuntimeError("PCell class not found: " + class_name)

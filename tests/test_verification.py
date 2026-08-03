@@ -1,7 +1,11 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 from core import KLayoutVerifier, PCell
+from core.verification import _RUNNER
 
 
 def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path: Path):
@@ -36,3 +40,50 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     assert generation_options["env"]["PCELL_VERIFY_CLASS"] == "Device"
     assert generation_options["env"]["PCELL_VERIFY_PARAMETERS"] == '{"width": 1.5}'
     assert results[0].passed
+
+
+def test_pcell_runner_loads_source_with_package_context(tmp_path: Path):
+    package = tmp_path / "devices"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "constants.py").write_text("DEVICE_NAME = 'relative import worked'\n", encoding="utf-8")
+    source = package / "capacitor.py"
+    source.write_text(
+        "from .constants import DEVICE_NAME\n"
+        "class Capacitor:\n"
+        "    imported_name = DEVICE_NAME\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pya.py").write_text(
+        "class Cell:\n"
+        "    def cell_index(self): return 1\n"
+        "class Top:\n"
+        "    def insert(self, instance): pass\n"
+        "class Layout:\n"
+        "    def register_pcell(self, name, declaration):\n"
+        "        assert declaration.imported_name == 'relative import worked'\n"
+        "    def create_cell(self, name, values=None):\n"
+        "        return Top() if name == 'VERIFY_TOP' else Cell()\n"
+        "    def write(self, output): open(output, 'w').write('layout')\n"
+        "class CellInstArray:\n"
+        "    def __init__(self, *args): pass\n"
+        "class Trans: pass\n",
+        encoding="utf-8",
+    )
+    runner = tmp_path / "instantiate.py"
+    runner.write_text(_RUNNER, encoding="utf-8")
+    output = tmp_path / "output.gds"
+    environment = os.environ.copy()
+    environment.update({
+        "PCELL_VERIFY_SOURCE": str(source),
+        "PCELL_VERIFY_CLASS": "Capacitor",
+        "PCELL_VERIFY_PARAMETERS": "{}",
+        "PCELL_VERIFY_OUTPUT": str(output),
+    })
+
+    completed = subprocess.run(
+        [sys.executable, str(runner)], capture_output=True, text=True, env=environment
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert output.read_text(encoding="utf-8") == "layout"
