@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -12,8 +13,11 @@ from pathlib import Path
 from .models import PCell, VerificationResult
 
 
-_RUNNER = r'''import json, runpy, pya, sys
-source, class_name, parameters, output = sys.argv[1:]
+_RUNNER = r'''import json, os, runpy, pya
+source = os.environ["PCELL_VERIFY_SOURCE"]
+class_name = os.environ["PCELL_VERIFY_CLASS"]
+parameters = os.environ["PCELL_VERIFY_PARAMETERS"]
+output = os.environ["PCELL_VERIFY_OUTPUT"]
 namespace = runpy.run_path(source)
 cls = namespace.get(class_name)
 if cls is None:
@@ -68,10 +72,16 @@ class KLayoutVerifier:
         results: list[VerificationResult] = []
         for index, point in enumerate(points, 1):
             layout = self.output_root / f"{pcell.name}_{index:04d}.gds"
+            environment = os.environ.copy()
+            environment.update({
+                "PCELL_VERIFY_SOURCE": str(source),
+                "PCELL_VERIFY_CLASS": pcell.name,
+                "PCELL_VERIFY_PARAMETERS": json.dumps(self._values(point)),
+                "PCELL_VERIFY_OUTPUT": str(layout),
+            })
             generated = subprocess.run(
-                [executable, "-b", "-r", str(runner), "--", str(source), pcell.name,
-                 json.dumps(self._values(point)), str(layout)],
-                capture_output=True, text=True, timeout=120,
+                [executable, "-b", "-r", str(runner)],
+                capture_output=True, text=True, timeout=120, env=environment,
             )
             if generated.returncode or not layout.exists():
                 message = (generated.stderr or generated.stdout or "PCell generation failed").strip()
