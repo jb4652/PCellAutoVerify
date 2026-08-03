@@ -22,7 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import KLayoutVerifier, PCell, VerificationResult, generate_test_points
+from core import (
+    KLayoutVerifier,
+    PCell,
+    VerificationResult,
+    generate_test_points,
+    inferred_range,
+)
 from database import PDKDatabase
 from plugins import PluginRegistry
 
@@ -47,15 +53,68 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PCell Auto Verify")
         self.resize(1100, 700)
 
-        toolbar = QToolBar("PDK")
+        self.setStyleSheet(
+            "QToolBar { spacing: 6px; padding: 5px; }"
+            "QPushButton { min-height: 26px; padding: 2px 10px; }"
+            "QHeaderView::section { font-weight: 600; padding: 6px; }"
+        )
+        toolbar = QToolBar("Verification tools")
+        toolbar.setObjectName("verificationToolbar")
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
-        manager = QAction(
+        self.manager_action = QAction(
             self.style().standardIcon(self.style().StandardPixmap.SP_DirIcon),
             "PDK Manager",
             self,
         )
-        manager.triggered.connect(self.open_manager)
-        toolbar.addAction(manager)
+        self.manager_action.triggered.connect(self.open_manager)
+        self.reload_action = QAction(
+            self.style().standardIcon(self.style().StandardPixmap.SP_BrowserReload),
+            "Reload",
+            self,
+        )
+        self.reload_action.triggered.connect(self.reload)
+        self.generate_action = QAction("Generate Points", self)
+        self.generate_action.triggered.connect(self.generate_points)
+        self.view_points_action = QAction("View Points", self)
+        self.view_points_action.triggered.connect(self.view_points)
+        self.verify_action = QAction(
+            self.style().standardIcon(self.style().StandardPixmap.SP_DialogApplyButton),
+            "Run Verify",
+            self,
+        )
+        self.verify_action.triggered.connect(self.verify)
+        self.results_action = QAction("Verification Results", self)
+        self.results_action.triggered.connect(self.view_results)
+        for action in (self.manager_action, self.reload_action):
+            toolbar.addAction(action)
+        toolbar.addSeparator()
+        verification_actions = (
+            self.generate_action,
+            self.view_points_action,
+            self.verify_action,
+            self.results_action,
+        )
+        for action in verification_actions:
+            toolbar.addAction(action)
+
+        file_menu = self.menuBar().addMenu("&File")
+        file_menu.addAction(self.manager_action)
+        file_menu.addAction(self.reload_action)
+        file_menu.addSeparator()
+        file_menu.addAction("E&xit", self.close)
+        verify_menu = self.menuBar().addMenu("&Verification")
+        for action in verification_actions:
+            verify_menu.addAction(action)
+        view_menu = self.menuBar().addMenu("&View")
+        view_menu.addAction(toolbar.toggleViewAction())
+        help_menu = self.menuBar().addMenu("&Help")
+        about_action = help_menu.addAction("About PCell Auto Verify")
+        about_action.triggered.connect(
+            lambda: self.statusBar().showMessage(
+                "PCell Auto Verify · automated PCell boundary verification", 5000
+            )
+        )
 
         content_splitter = QSplitter(Qt.Orientation.Vertical)
         splitter = QSplitter()
@@ -126,6 +185,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(content_splitter)
         self.reload()
 
+    def _sync_actions(self) -> None:
+        self.generate_action.setEnabled(self.generate_button.isEnabled())
+        self.view_points_action.setEnabled(self.view_button.isEnabled())
+        self.verify_action.setEnabled(self.verify_button.isEnabled())
+        self.results_action.setEnabled(self.results_button.isEnabled())
+
     def open_manager(self) -> None:
         dialog = PDKManagerDialog(self.database, self.registry, self)
         dialog.changed.connect(self.reload)
@@ -142,6 +207,7 @@ class MainWindow(QMainWindow):
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
         self.results_button.setEnabled(False)
+        self._sync_actions()
         self.parameter_title.setText("Select a PCell to configure parameters")
         active = next(
             (pdk for pdk in self.database.list_pdks() if pdk.active), None
@@ -199,6 +265,7 @@ class MainWindow(QMainWindow):
         self.results_button.setEnabled(bool(self.verification_results.get(row)))
         if row < 0 or row >= len(self.current_cells):
             self.parameter_title.setText("Select a PCell to configure parameters")
+            self._sync_actions()
             return
         cell = self.current_cells[row]
         self.parameter_title.setText(f"Parameters — {cell.name}")
@@ -207,6 +274,8 @@ class MainWindow(QMainWindow):
         self.parameters.blockSignals(True)
         self.parameters.setRowCount(len(parameters))
         for index, parameter in enumerate(parameters):
+            if not parameter.value_range.strip():
+                parameter.value_range = inferred_range(parameter)
             values = (parameter.name, parameter.default, parameter.value_range)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -214,6 +283,7 @@ class MainWindow(QMainWindow):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.parameters.setItem(index, column, item)
         self.parameters.blockSignals(False)
+        self._sync_actions()
 
     def _range_changed(self, item: QTableWidgetItem) -> None:
         row = self._selected_cell_index()
@@ -225,6 +295,7 @@ class MainWindow(QMainWindow):
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
         self.results_button.setEnabled(False)
+        self._sync_actions()
 
     def generate_points(self) -> None:
         row = self._selected_cell_index()
@@ -236,6 +307,7 @@ class MainWindow(QMainWindow):
         self.view_button.setEnabled(bool(points))
         self.verify_button.setEnabled(bool(points))
         self.results_button.setEnabled(False)
+        self._sync_actions()
         self.statusBar().showMessage(
             f"Generated {len(points)} test point(s) for {self.current_cells[row].name}"
         )
@@ -259,7 +331,10 @@ class MainWindow(QMainWindow):
             return
         cell = self.current_cells[row]
         self.verify_button.setEnabled(False)
-        self.write_output(f"Running KLayout DRC for '{cell.name}' ({len(points)} point(s)) …")
+        self._sync_actions()
+        self.write_output(
+            f"Running KLayout DRC for '{cell.name}' ({len(points)} point(s)) …"
+        )
         self.verification_requested.emit(cell, points)
         results = KLayoutVerifier(self.active_pdk_path).verify(cell, points)
         self.verification_results[row] = results
@@ -269,10 +344,14 @@ class MainWindow(QMainWindow):
             f"DRC complete for '{cell.name}': {passed} passed, {failed} failed."
         )
         for result in results:
-            self.write_output(f"  #{result.index}: {'PASS' if result.passed else 'FAIL'} — {result.message}")
+            self.write_output(
+                f"  #{result.index}: "
+                f"{'PASS' if result.passed else 'FAIL'} — {result.message}"
+            )
         self.statusBar().showMessage(f"DRC complete: {passed} passed, {failed} failed")
         self.results_button.setEnabled(bool(results))
         self.verify_button.setEnabled(True)
+        self._sync_actions()
 
     def view_results(self) -> None:
         row = self._selected_cell_index()

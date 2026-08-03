@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from core import PCell
+from core import PCell, inferred_range
 
 
 class TestPointsDialog(QDialog):
@@ -22,17 +22,32 @@ class TestPointsDialog(QDialog):
         self.resize(760, 480)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"{len(points)} generated test point(s)"))
-        table = QTableWidget(len(points), len(pcell.parameters))
+        layout.addWidget(
+            QLabel(
+                f"{len(points)} concrete verification point(s) · "
+                "values include boundaries and defaults"
+            )
+        )
+        ranges = "  ·  ".join(
+            f"{parameter.name}: {parameter.value_range or inferred_range(parameter) or 'default only'}"
+            for parameter in pcell.parameters
+        )
+        range_label = QLabel(f"Parameter ranges — {ranges}")
+        range_label.setWordWrap(True)
+        layout.addWidget(range_label)
+        table = QTableWidget(len(points), len(pcell.parameters) + 1)
         table.setHorizontalHeaderLabels(
-            [parameter.name for parameter in pcell.parameters]
+            ["Point", *[parameter.name for parameter in pcell.parameters]]
         )
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         for row, point in enumerate(points):
+            table.setItem(row, 0, QTableWidgetItem(f"VP-{row + 1:03d}"))
             for column, parameter in enumerate(pcell.parameters):
                 table.setItem(
-                    row, column, QTableWidgetItem(point.get(parameter.name, ""))
+                    row,
+                    column + 1,
+                    QTableWidgetItem(point.get(parameter.name, parameter.default)),
                 )
         layout.addWidget(table)
 

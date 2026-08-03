@@ -10,6 +10,26 @@ import re
 from .models import PCell, Parameter
 
 
+def inferred_range(parameter: Parameter) -> str:
+    """Return a small, concrete range when a scanner supplied no constraint."""
+    default = _literal(parameter.default)
+    name = parameter.name.lower()
+    if isinstance(default, bool):
+        return "choices=[False, True]"
+    if isinstance(default, int):
+        if any(word in name for word in ("count", "finger", "row", "col", "mult")):
+            low, high = max(1, default // 2), max(2, default * 2)
+        else:
+            low, high = max(0, default - 1), default + 1
+        return f"min={low}, max={high}"
+    if isinstance(default, float):
+        scale = abs(default) or 1.0
+        low = max(0.0, default - scale * 0.5)
+        high = default + scale
+        return f"min={low:g}, max={high:g}"
+    return ""
+
+
 def _display(value: object) -> str:
     """Keep generated values consistent with the strings shown in the UI."""
     return repr(value) if isinstance(value, str) else str(value)
@@ -29,7 +49,7 @@ def parameter_values(parameter: Parameter) -> list[str]:
     Supported forms are the scanner's ``min=..., max=..., choices=...`` form,
     a compact ``low..high`` form, and a comma-separated list.
     """
-    value_range = parameter.value_range.strip()
+    value_range = parameter.value_range.strip() or inferred_range(parameter)
     values: list[object] = []
 
     choices = re.search(r"(?:^|,)\s*choices\s*=\s*(.+)$", value_range)
