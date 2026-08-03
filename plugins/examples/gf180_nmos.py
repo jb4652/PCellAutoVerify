@@ -16,12 +16,14 @@ class GF180MCUANMOS(pya.PCellDeclarationHelper):
         )
         for value in (1.0, 2.0, 4.0):
             width.add_choice(f"{value:g} µm", value)
-        for value in (0.5, 0.6, 1.0):
+        for value in (0.2, 0.6, 1.0):
             length.add_choice(f"{value:g} µm", value)
 
     def coerce_parameters_impl(self):
         self.width = max(1.0, float(self.width))
-        self.length = max(0.5, float(self.length))
+        # Keep the intentionally out-of-rule 0.2 µm example constructible: it
+        # should produce a layout and fail DRC, rather than fail instantiation.
+        self.length = max(0.2, float(self.length))
 
     def display_text_impl(self):
         return f"GF180 NMOS W={self.width:g} µm L={self.length:g} µm"
