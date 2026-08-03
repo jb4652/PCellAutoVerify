@@ -178,7 +178,8 @@ class KLayoutVerifier:
             report = self.output_root / f"{pcell.name}_{index:04d}.lyrdb"
             checked = subprocess.run(
                 [executable, "-b", "-r", str(deck), "-rd", f"input={layout}",
-                 "-rd", f"report={report}"], capture_output=True, text=True, timeout=300,
+                 "-rd", f"report={report}", "-rd", "topcell=VERIFY_TOP"],
+                capture_output=True, text=True, timeout=300,
                 cwd=self.pdk_root, env=environment,
             )
             violations = report.read_text(encoding="utf-8", errors="ignore").count("<item>") if report.exists() else 0

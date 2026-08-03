@@ -9,8 +9,10 @@ from core import PCell, PDK, Parameter
 from .base import PDKPlugin
 
 
-GF180_DEMO_NAME = "GF180MCUADemoRectangle"
-GF180_DEMO_SOURCE = Path(__file__).with_name("gf180_demo_pcell.py").resolve()
+GF180_NMOS_NAME = "GF180MCUANMOS"
+GF180_NMOS_SOURCE = (
+    Path(__file__).with_name("examples") / "gf180_nmos.py"
+).resolve()
 
 
 class OpenPDKsPlugin(PDKPlugin):
@@ -140,23 +142,19 @@ class OpenPDKsPlugin(PDKPlugin):
         for path in root.rglob("*.py"):
             if not any(part.startswith(".") for part in path.relative_to(root).parts):
                 cells.extend(self._scan_file(path, root))
-        # gf180mcuA is frequently used for demonstrations, but an installed PDK
-        # may contain no directly discoverable Python PCell at all.  Add one
-        # deliberately boring, self-contained Metal1 rectangle.  Its generous
-        # dimensions are well above the GF180 Metal1 minimum width/area rules,
-        # making it a dependable first layout for new users to generate, view,
-        # and send through the real PDK DRC deck.
+        # An installed gf180mcuA tree may contain no directly discoverable
+        # Python PCell. Supply a useful starter transistor in that case.
         if "gf180mcua" in root.name.lower() and not any(
-            cell.name == GF180_DEMO_NAME for cell in cells
+            cell.name == GF180_NMOS_NAME for cell in cells
         ):
             cells.insert(
                 0,
                 PCell(
-                    GF180_DEMO_NAME,
-                    str(GF180_DEMO_SOURCE),
+                    GF180_NMOS_NAME,
+                    str(GF180_NMOS_SOURCE),
                     [
-                        Parameter("width", "20.0", "choices=[10.0, 20.0, 40.0]"),
-                        Parameter("height", "20.0", "choices=[10.0, 20.0, 40.0]"),
+                        Parameter("width", "2.0", "choices=[1.0, 2.0, 4.0]"),
+                        Parameter("length", "0.6", "choices=[0.5, 0.6, 1.0]"),
                     ],
                 ),
             )
