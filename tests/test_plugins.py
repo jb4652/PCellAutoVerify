@@ -29,3 +29,32 @@ def test_open_pdks_scans_klayout_style_pcell(tmp_path: Path):
 def test_unsupported_directory_is_rejected(tmp_path: Path):
     with pytest.raises(ValueError, match="没有插件支持"):
         PluginRegistry().import_path(tmp_path)
+
+
+def test_gf180mcua_import_adds_a_simple_demo_pcell(tmp_path: Path):
+    root = tmp_path / "gf180mcuA"
+    root.mkdir()
+
+    pdk = PluginRegistry().import_path(root)
+
+    demo = pdk.pcells[0]
+    assert demo.name == "GF180MCUADemoRectangle"
+    assert Path(demo.source).is_absolute()
+    assert Path(demo.source).is_file()
+    values = [
+        (parameter.name, parameter.default, parameter.value_range)
+        for parameter in demo.parameters
+    ]
+    assert values == [
+        ("width", "20.0", "choices=[10.0, 20.0, 40.0]"),
+        ("height", "20.0", "choices=[10.0, 20.0, 40.0]"),
+    ]
+
+
+def test_demo_pcell_is_not_added_to_other_gf180_imports(tmp_path: Path):
+    root = tmp_path / "gf180mcuB"
+    root.mkdir()
+
+    pdk = PluginRegistry().import_path(root)
+
+    assert all(cell.name != "GF180MCUADemoRectangle" for cell in pdk.pcells)
