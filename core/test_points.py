@@ -44,7 +44,7 @@ def _literal(value: str) -> object:
 
 
 def parameter_values(parameter: Parameter) -> list[str]:
-    """Return representative values for a parameter's range expression.
+    """Return the boundary values for a parameter's range expression.
 
     Supported forms are the scanner's ``min=..., max=..., choices=...`` form,
     a compact ``low..high`` form, and a comma-separated list.
@@ -56,25 +56,28 @@ def parameter_values(parameter: Parameter) -> list[str]:
     if choices:
         parsed = _literal(choices.group(1))
         if isinstance(parsed, (list, tuple, set)):
-            values.extend(parsed)
+            parsed = (
+                sorted(parsed, key=_display)
+                if isinstance(parsed, set)
+                else list(parsed)
+            )
+            if parsed:
+                values.extend((parsed[0], parsed[-1]))
     else:
         minimum = re.search(r"(?:^|,)\s*min\s*=\s*([^,]+)", value_range)
         maximum = re.search(r"(?:^|,)\s*max\s*=\s*([^,]+)", value_range)
         if minimum:
             values.append(_literal(minimum.group(1)))
-        if parameter.default.strip():
-            values.append(_literal(parameter.default))
         if maximum:
             values.append(_literal(maximum.group(1)))
 
         if not minimum and not maximum and ".." in value_range:
             low, high = value_range.split("..", 1)
             values = [_literal(low)]
-            if parameter.default.strip():
-                values.append(_literal(parameter.default))
             values.append(_literal(high))
         elif not minimum and not maximum and value_range:
-            values = [_literal(item) for item in value_range.split(",")]
+            listed = [_literal(item) for item in value_range.split(",")]
+            values = [listed[0], listed[-1]]
 
     if not values and parameter.default.strip():
         values.append(_literal(parameter.default))
@@ -88,7 +91,7 @@ def parameter_values(parameter: Parameter) -> list[str]:
 
 
 def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]:
-    """Generate a deterministic, evenly sampled Cartesian parameter matrix."""
+    """Generate a deterministic Cartesian matrix from parameter boundaries."""
     if limit <= 0 or not pcell.parameters:
         return []
 

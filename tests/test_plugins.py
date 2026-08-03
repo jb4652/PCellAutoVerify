@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from core import generate_test_points
 from plugins import PluginRegistry
 
 
@@ -47,8 +48,11 @@ def test_gf180mcua_import_adds_an_nmos_starter_pcell(tmp_path: Path):
     ]
     assert values == [
         ("width", "2.0", "choices=[1.0, 2.0, 4.0]"),
-        ("length", "0.6", "choices=[0.5, 0.6, 1.0]"),
+        ("length", "0.6", "choices=[0.2, 0.6, 1.0]"),
     ]
+    points = generate_test_points(nmos)
+    assert len(points) == 4
+    assert sum(point["length"] == "0.2" for point in points) == 2
 
 
 def test_starter_pcell_is_not_added_to_other_gf180_imports(tmp_path: Path):

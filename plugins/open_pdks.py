@@ -154,7 +154,10 @@ class OpenPDKsPlugin(PDKPlugin):
                     str(GF180_NMOS_SOURCE),
                     [
                         Parameter("width", "2.0", "choices=[1.0, 2.0, 4.0]"),
-                        Parameter("length", "0.6", "choices=[0.5, 0.6, 1.0]"),
+                        # The 0.2 µm boundary deliberately violates the usual
+                        # GF180 gate-length rule.  It remains constructible so
+                        # the example demonstrates failed DRC layout handling.
+                        Parameter("length", "0.6", "choices=[0.2, 0.6, 1.0]"),
                     ],
                 ),
             )
