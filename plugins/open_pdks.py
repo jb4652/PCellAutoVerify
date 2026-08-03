@@ -9,6 +9,10 @@ from core import PCell, PDK, Parameter
 from .base import PDKPlugin
 
 
+GF180_DEMO_NAME = "GF180MCUADemoRectangle"
+GF180_DEMO_SOURCE = Path(__file__).with_name("gf180_demo_pcell.py").resolve()
+
+
 class OpenPDKsPlugin(PDKPlugin):
     name = "open-pdks"
     markers = ("sky130", "gf180", "ihp-sg13", "open_pdks", "open-pdks")
@@ -136,4 +140,24 @@ class OpenPDKsPlugin(PDKPlugin):
         for path in root.rglob("*.py"):
             if not any(part.startswith(".") for part in path.relative_to(root).parts):
                 cells.extend(self._scan_file(path, root))
+        # gf180mcuA is frequently used for demonstrations, but an installed PDK
+        # may contain no directly discoverable Python PCell at all.  Add one
+        # deliberately boring, self-contained Metal1 rectangle.  Its generous
+        # dimensions are well above the GF180 Metal1 minimum width/area rules,
+        # making it a dependable first layout for new users to generate, view,
+        # and send through the real PDK DRC deck.
+        if "gf180mcua" in root.name.lower() and not any(
+            cell.name == GF180_DEMO_NAME for cell in cells
+        ):
+            cells.insert(
+                0,
+                PCell(
+                    GF180_DEMO_NAME,
+                    str(GF180_DEMO_SOURCE),
+                    [
+                        Parameter("width", "20.0", "choices=[10.0, 20.0, 40.0]"),
+                        Parameter("height", "20.0", "choices=[10.0, 20.0, 40.0]"),
+                    ],
+                ),
+            )
         return PDK(None, root.name, str(root.resolve()), self.name, pcells=cells)
