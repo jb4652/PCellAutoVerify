@@ -8,10 +8,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtGui import QColor, QImage
+from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget
 
 from core import PCell, VerificationResult
-from gui.results_dialog import VerificationResultsDialog
+from gui.results_dialog import PdfReportDialog, VerificationResultsDialog
 
 
 def test_failed_result_displays_layout_thumbnail_and_view_button(tmp_path: Path):
@@ -40,5 +41,29 @@ def test_failed_result_displays_layout_thumbnail_and_view_button(tmp_path: Path)
     assert isinstance(button, QPushButton)
     assert button.isEnabled()
 
+    dialog.close()
+    app.processEvents()
+
+
+def test_results_dialog_creates_viewable_and_saveable_pdf_report(tmp_path: Path):
+    app = QApplication.instance() or QApplication([])
+    result = VerificationResult(
+        1, {"width": "2<&"}, False, "DRC found <1> violation(s)"
+    )
+    dialog = VerificationResultsDialog(PCell("Device", "device.py"), [result])
+
+    report_button = dialog.findChild(QPushButton, "viewPdfReportButton")
+    assert report_button is not None
+    assert report_button.isEnabled()
+    assert dialog._report_path.exists()
+    assert dialog._report_path.read_bytes().startswith(b"%PDF")
+
+    viewer_dialog = PdfReportDialog(dialog._report_path, dialog)
+    assert viewer_dialog.findChild(QPdfView, "pdfReportViewer") is not None
+    save_button = viewer_dialog.findChild(QPushButton, "savePdfReportButton")
+    assert save_button is not None
+    assert save_button.text() == "Save PDF"
+
+    viewer_dialog.close()
     dialog.close()
     app.processEvents()
