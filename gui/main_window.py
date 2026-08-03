@@ -1,22 +1,29 @@
 """应用主窗口。"""
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
+    QHBoxLayout,
+    QLabel,
     QListWidget,
     QMainWindow,
+    QPushButton,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
+    QVBoxLayout,
+    QWidget,
 )
 
-from core import PCell
+from core import PCell, generate_test_points
 from database import PDKDatabase
 from plugins import PluginRegistry
 
 from .pdk_manager import PDKManagerDialog
+from .points_dialog import TestPointsDialog
 
 
 class MainWindow(QMainWindow):
@@ -25,6 +32,7 @@ class MainWindow(QMainWindow):
         self.database = database
         self.registry = PluginRegistry()
         self.current_cells: list[PCell] = []
+        self.test_points: dict[int, list[dict[str, str]]] = {}
         self.setWindowTitle("PCell Auto Verify")
         self.resize(1100, 700)
 
@@ -49,8 +57,31 @@ class MainWindow(QMainWindow):
         self.parameters.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
+        self.parameters.itemChanged.connect(self._range_changed)
         splitter.addWidget(self.cells)
-        splitter.addWidget(self.parameters)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        header = QHBoxLayout()
+        self.parameter_title = QLabel("Select a PCell to configure parameters")
+        header.addWidget(self.parameter_title)
+        header.addStretch()
+        self.generate_button = QPushButton("Generate Test Points")
+        self.generate_button.setEnabled(False)
+        self.generate_button.clicked.connect(self.generate_points)
+        header.addWidget(self.generate_button)
+        self.view_button = QPushButton("View Test Points")
+        self.view_button.setEnabled(False)
+        self.view_button.clicked.connect(self.view_points)
+        header.addWidget(self.view_button)
+        right_layout.addLayout(header)
+        range_help = QLabel(
+            "Edit Range / Choices using min=…, max=…; choices=[…]; or low..high. "
+            "Blank ranges use the default value."
+        )
+        range_help.setWordWrap(True)
+        right_layout.addWidget(range_help)
+        right_layout.addWidget(self.parameters)
+        splitter.addWidget(right_panel)
         splitter.setSizes([350, 750])
         self.setCentralWidget(splitter)
         self.reload()
@@ -64,6 +95,10 @@ class MainWindow(QMainWindow):
         self.cells.clear()
         self.parameters.setRowCount(0)
         self.current_cells = []
+        self.test_points.clear()
+        self.generate_button.setEnabled(False)
+        self.view_button.setEnabled(False)
+        self.parameter_title.setText("Select a PCell to configure parameters")
         active = next(
             (pdk for pdk in self.database.list_pdks() if pdk.active), None
         )
@@ -82,11 +117,48 @@ class MainWindow(QMainWindow):
 
     def show_parameters(self, row: int) -> None:
         self.parameters.setRowCount(0)
+        self.generate_button.setEnabled(False)
+        self.view_button.setEnabled(bool(self.test_points.get(row)))
         if row < 0 or row >= len(self.current_cells):
+            self.parameter_title.setText("Select a PCell to configure parameters")
             return
-        parameters = self.current_cells[row].parameters
+        cell = self.current_cells[row]
+        self.parameter_title.setText(f"Parameters — {cell.name}")
+        parameters = cell.parameters
+        self.generate_button.setEnabled(bool(parameters))
+        self.parameters.blockSignals(True)
         self.parameters.setRowCount(len(parameters))
         for index, parameter in enumerate(parameters):
             values = (parameter.name, parameter.default, parameter.value_range)
             for column, value in enumerate(values):
-                self.parameters.setItem(index, column, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if column < 2:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.parameters.setItem(index, column, item)
+        self.parameters.blockSignals(False)
+
+    def _range_changed(self, item: QTableWidgetItem) -> None:
+        row = self.cells.currentRow()
+        if item.column() != 2 or row < 0 or row >= len(self.current_cells):
+            return
+        self.current_cells[row].parameters[item.row()].value_range = item.text()
+        self.test_points.pop(row, None)
+        self.view_button.setEnabled(False)
+
+    def generate_points(self) -> None:
+        row = self.cells.currentRow()
+        if row < 0 or row >= len(self.current_cells):
+            return
+        points = generate_test_points(self.current_cells[row])
+        self.test_points[row] = points
+        self.view_button.setEnabled(bool(points))
+        self.statusBar().showMessage(
+            f"Generated {len(points)} test point(s) for {self.current_cells[row].name}"
+        )
+
+    def view_points(self) -> None:
+        row = self.cells.currentRow()
+        points = self.test_points.get(row, [])
+        if row < 0 or row >= len(self.current_cells) or not points:
+            return
+        TestPointsDialog(self.current_cells[row], points, self).exec()
