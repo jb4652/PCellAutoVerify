@@ -195,3 +195,62 @@ def test_pcell_runner_removes_paths_for_an_incompatible_python(tmp_path: Path):
 
     assert completed.returncode == 0, completed.stderr
     assert output.read_text(encoding="utf-8") == "layout"
+
+
+def test_pcell_runner_rejects_errors_rendered_on_klayout_error_layer(tmp_path: Path):
+    source = tmp_path / "device.py"
+    source.write_text("class Device: pass\n", encoding="utf-8")
+    (tmp_path / "pya.py").write_text(
+        "class Text:\n"
+        "    string = 'produce_impl failed: bad geometry'\n"
+        "class Shape:\n"
+        "    text = Text()\n"
+        "    def is_text(self): return True\n"
+        "class Shapes:\n"
+        "    def each(self): return iter([Shape()])\n"
+        "class Cell:\n"
+        "    def shapes(self, layer): return Shapes()\n"
+        "    def cell_index(self): return 1\n"
+        "class Layout:\n"
+        "    def __init__(self): self.cell = Cell()\n"
+        "    def register_pcell(self, name, declaration): pass\n"
+        "    def create_cell(self, name, values=None): return self.cell\n"
+        "    def error_layer(self): return 99\n"
+        "    def each_cell(self): return iter([self.cell])\n"
+        "class CellInstArray:\n"
+        "    def __init__(self, *args): pass\n"
+        "class Trans: pass\n",
+        encoding="utf-8",
+    )
+    runner = tmp_path / "instantiate.py"
+    runner.write_text(_RUNNER, encoding="utf-8")
+    output = tmp_path / "output.gds"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(tmp_path)
+    environment.update({
+        "PCELL_VERIFY_SOURCE": str(source),
+        "PCELL_VERIFY_CLASS": "Device",
+        "PCELL_VERIFY_PARAMETERS": "{}",
+        "PCELL_VERIFY_OUTPUT": str(output),
+    })
+
+    completed = subprocess.run(
+        [sys.executable, str(runner)], capture_output=True, text=True, env=environment
+    )
+
+    assert completed.returncode != 0
+    assert "PCell generation failed" in completed.stderr
+    assert "produce_impl failed: bad geometry" in completed.stderr
+    assert not output.exists()
+
+
+def test_violation_count_accepts_namespaces_and_item_attributes(tmp_path: Path):
+    report = tmp_path / "report.lyrdb"
+    report.write_text(
+        '<report-database xmlns="urn:klayout"><items>'
+        '<item id="1"/><item><category>spacing</category></item>'
+        '</items></report-database>',
+        encoding="utf-8",
+    )
+
+    assert KLayoutVerifier._violation_count(report) == 2
