@@ -10,6 +10,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .models import PCell, VerificationResult
@@ -62,6 +63,21 @@ values = json.loads(parameters)
 cell = layout.create_cell(class_name, values)
 if cell is None:
     raise RuntimeError("KLayout could not instantiate the PCell")
+# KLayout deliberately catches exceptions raised by ``produce_impl``.  Rather
+# than propagating them to Python, it puts the traceback on its special error
+# layer as text.  Without checking that layer we would write an error message
+# as a GDS layout and an empty layout could then (misleadingly) pass DRC.
+error_messages = []
+if hasattr(layout, "error_layer") and hasattr(layout, "each_cell"):
+    error_layer = layout.error_layer()
+    for generated_cell in layout.each_cell():
+        for shape in generated_cell.shapes(error_layer).each():
+            if shape.is_text():
+                error_messages.append(shape.text.string)
+            else:
+                error_messages.append("unknown PCell generation error")
+if error_messages:
+    raise RuntimeError("PCell generation failed: " + "\n".join(error_messages))
 top = layout.create_cell("VERIFY_TOP")
 top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
 layout.write(output)
@@ -156,6 +172,18 @@ class KLayoutVerifier:
         environment["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(paths))
         return environment
 
+    @staticmethod
+    def _violation_count(report: Path) -> int:
+        """Count result-database items without depending on XML formatting."""
+        try:
+            root = ET.parse(report).getroot()
+        except (ET.ParseError, OSError):
+            return 0
+        return sum(
+            1 for element in root.iter()
+            if element.tag.rsplit("}", 1)[-1] == "item"
+        )
+
     def verify(self, pcell: PCell, points: list[dict[str, str]]) -> list[VerificationResult]:
         executable = shutil.which("klayout")
         if not executable:
@@ -217,7 +245,7 @@ class KLayoutVerifier:
                 capture_output=True, text=True, timeout=300,
                 cwd=self.pdk_root, env=environment,
             )
-            violations = report.read_text(encoding="utf-8", errors="ignore").count("<item>") if report.exists() else 0
+            violations = self._violation_count(report) if report.exists() else 0
             passed = checked.returncode == 0 and report.exists() and violations == 0
             message = "DRC passed" if passed else (
                 f"DRC found {violations} violation(s)" if report.exists() else
