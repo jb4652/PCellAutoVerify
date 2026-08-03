@@ -19,6 +19,7 @@ class VerificationResult:
     passed: bool
     message: str
     layout_path: str = ""
+    preview_path: str = ""
 
 
 @dataclass(slots=True)

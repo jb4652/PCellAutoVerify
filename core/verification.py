@@ -30,6 +30,7 @@ source = os.environ["PCELL_VERIFY_SOURCE"]
 class_name = os.environ["PCELL_VERIFY_CLASS"]
 parameters = os.environ["PCELL_VERIFY_PARAMETERS"]
 output = os.environ["PCELL_VERIFY_OUTPUT"]
+preview = os.environ.get("PCELL_VERIFY_PREVIEW", "")
 source_path = os.path.abspath(source)
 package_parts = []
 package_dir = os.path.dirname(source_path)
@@ -56,6 +57,17 @@ if cell is None:
 top = layout.create_cell("VERIFY_TOP")
 top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
 layout.write(output)
+if preview:
+    try:
+        view = pya.LayoutView()
+        view.show_layout(layout, True)
+        view.max_hier()
+        view.zoom_fit()
+        view.save_image(preview, 1600, 1200)
+    except Exception as error:
+        # A preview is a convenience and must never turn a successfully
+        # generated layout into a failed verification result.
+        sys.stderr.write("Unable to create layout preview: " + str(error) + "\n")
 '''
 
 
@@ -140,12 +152,14 @@ class KLayoutVerifier:
         results: list[VerificationResult] = []
         for index, point in enumerate(points, 1):
             layout = self.output_root / f"{pcell.name}_{index:04d}.gds"
+            preview = self.output_root / f"{pcell.name}_{index:04d}.png"
             environment = self._environment()
             environment.update({
                 "PCELL_VERIFY_SOURCE": str(source),
                 "PCELL_VERIFY_CLASS": pcell.name,
                 "PCELL_VERIFY_PARAMETERS": json.dumps(self._values(point)),
                 "PCELL_VERIFY_OUTPUT": str(layout),
+                "PCELL_VERIFY_PREVIEW": str(preview),
             })
             generated = subprocess.run(
                 [executable, "-b", "-r", str(runner)],
@@ -156,7 +170,10 @@ class KLayoutVerifier:
                 results.append(VerificationResult(index, point, False, message[-1000:]))
                 continue
             if deck is None:
-                results.append(VerificationResult(index, point, False, "No KLayout DRC deck (*.lydrc) found", str(layout)))
+                results.append(VerificationResult(
+                    index, point, False, "No KLayout DRC deck (*.lydrc) found",
+                    str(layout), str(preview) if preview.exists() else "",
+                ))
                 continue
             report = self.output_root / f"{pcell.name}_{index:04d}.lyrdb"
             checked = subprocess.run(
@@ -170,5 +187,8 @@ class KLayoutVerifier:
                 f"DRC found {violations} violation(s)" if report.exists() else
                 (checked.stderr or checked.stdout or "DRC did not create a report").strip()[-1000:]
             )
-            results.append(VerificationResult(index, point, passed, message, str(layout)))
+            results.append(VerificationResult(
+                index, point, passed, message, str(layout),
+                str(preview) if preview.exists() else "",
+            ))
         return results

@@ -40,6 +40,9 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     assert "--" not in generation_command
     assert generation_options["env"]["PCELL_VERIFY_CLASS"] == "Device"
     assert generation_options["env"]["PCELL_VERIFY_PARAMETERS"] == '{"width": 1.5}'
+    assert generation_options["env"]["PCELL_VERIFY_PREVIEW"] == str(
+        output_root / "Device_0001.png"
+    )
     python_paths = generation_options["env"]["PYTHONPATH"].split(os.pathsep)
     assert str(Path(sysconfig.get_path("stdlib")).resolve()) not in python_paths
     assert any("site-packages" in path for path in python_paths)
