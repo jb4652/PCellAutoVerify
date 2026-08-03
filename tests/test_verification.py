@@ -47,6 +47,7 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     assert str(Path(sysconfig.get_path("stdlib")).resolve()) not in python_paths
     assert any("site-packages" in path for path in python_paths)
     assert calls[1][1]["env"] is generation_options["env"]
+    assert calls[1][0][-2:] == ["-rd", "topcell=VERIFY_TOP"]
     assert results[0].passed
 
 

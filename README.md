@@ -17,12 +17,10 @@ python main.py
 
 点击工具栏 **PDK Manager**，选择 **Import PDK...** 并指向 PDK 根目录。首版内置 `open-pdks` 插件，支持 fossi-foundation/open-pdks 源码树，以及含 `sky130`、`gf180mcu`、`ihp-sg13g2` 标识的安装树。插件静态扫描 Python PCell 定义，不会执行 PDK 中的代码。导入信息默认保存在系统应用数据目录下的 SQLite 数据库中。
 
-导入名为 `gf180mcuA` 的 PDK 时，程序还会在列表最前面加入
-`GF180MCUADemoRectangle` 演示 PCell。它只包含宽和高两个参数（各有 10、20、
-40 µm 三个候选值），在 GF180 Metal1（34/0）上生成一个居中的大矩形。默认的
-20 × 20 µm 版图直观可见，尺寸也保守地高于 Metal1 的最小宽度和面积要求，适合
-第一次生成测试点、运行 PDK 自带 DRC，再从 **DRC Results → Open Layout** 打开
-版图查看。
+导入名为 `gf180mcuA` 的 PDK 时，程序还会在列表最前面加入一个
+`GF180MCUANMOS` 入门 PCell。它提供栅宽和栅长参数，并生成包含 COMP、Poly2、
+Nplus、接触孔及源漏 Metal1 的 NMOS 版图，可用于第一次生成测试点、运行 PDK
+自带 DRC，再从 **DRC Results → Open Layout** 打开版图查看。
 
 激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。选择 PCell 后，右侧的 **Range / Choices** 可直接编辑，支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。扫描器会为源码中没有约束的参数根据默认值补充一组保守的布尔、整数或浮点候选值。点击 **Generate Test Points** 会组合参数候选值，完整组合超过 200 条时会均匀抽样为 200 条，再通过 **View Test Points** 查看结果。
 
