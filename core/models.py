@@ -1,3 +1,5 @@
+"""不依赖界面和存储实现的领域模型。"""
+
 from dataclasses import dataclass, field
 
 
@@ -23,4 +25,3 @@ class PDK:
     plugin: str
     active: bool = False
     pcells: list[PCell] = field(default_factory=list)
-
