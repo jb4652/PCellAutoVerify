@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 from unittest.mock import patch
 
@@ -39,8 +40,9 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     assert "--" not in generation_command
     assert generation_options["env"]["PCELL_VERIFY_CLASS"] == "Device"
     assert generation_options["env"]["PCELL_VERIFY_PARAMETERS"] == '{"width": 1.5}'
-    assert all(path in generation_options["env"]["PYTHONPATH"].split(os.pathsep)
-               for path in sys.path if path)
+    python_paths = generation_options["env"]["PYTHONPATH"].split(os.pathsep)
+    assert str(Path(sysconfig.get_path("stdlib")).resolve()) not in python_paths
+    assert any("site-packages" in path for path in python_paths)
     assert calls[1][1]["env"] is generation_options["env"]
     assert results[0].passed
 
@@ -52,6 +54,29 @@ def test_klayout_environment_preserves_existing_pythonpath(monkeypatch):
 
     assert "/custom/packages" in paths
     assert len(paths) == len(set(paths))
+
+
+def test_klayout_environment_excludes_host_standard_library(monkeypatch, tmp_path):
+    stdlib = tmp_path / "lib" / "python3.12"
+    site_packages = stdlib / "site-packages"
+    project = tmp_path / "project"
+    monkeypatch.setattr(
+        sys,
+        "path",
+        [str(stdlib), str(stdlib / "lib-dynload"), str(site_packages), str(project)],
+    )
+    monkeypatch.setattr(
+        sysconfig,
+        "get_path",
+        lambda key: str(stdlib) if key in {"stdlib", "platstdlib"} else None,
+    )
+
+    paths = KLayoutVerifier._environment()["PYTHONPATH"].split(os.pathsep)
+
+    assert str(stdlib) not in paths
+    assert str(stdlib / "lib-dynload") not in paths
+    assert str(site_packages) in paths
+    assert str(project) in paths
 
 
 def test_pcell_runner_loads_source_with_package_context(tmp_path: Path):
