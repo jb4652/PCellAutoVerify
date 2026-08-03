@@ -39,7 +39,19 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     assert "--" not in generation_command
     assert generation_options["env"]["PCELL_VERIFY_CLASS"] == "Device"
     assert generation_options["env"]["PCELL_VERIFY_PARAMETERS"] == '{"width": 1.5}'
+    assert all(path in generation_options["env"]["PYTHONPATH"].split(os.pathsep)
+               for path in sys.path if path)
+    assert calls[1][1]["env"] is generation_options["env"]
     assert results[0].passed
+
+
+def test_klayout_environment_preserves_existing_pythonpath(monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["/custom/packages", sys.path[0]]))
+
+    paths = KLayoutVerifier._environment()["PYTHONPATH"].split(os.pathsep)
+
+    assert "/custom/packages" in paths
+    assert len(paths) == len(set(paths))
 
 
 def test_pcell_runner_loads_source_with_package_context(tmp_path: Path):
