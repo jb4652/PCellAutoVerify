@@ -1,6 +1,7 @@
 """open-pdks/KLayout 风格 Python PCell 的静态扫描插件。"""
 
 import ast
+import re
 from pathlib import Path
 
 from core import PCell, PDK, Parameter
@@ -11,6 +12,29 @@ from .base import PDKPlugin
 class OpenPDKsPlugin(PDKPlugin):
     name = "open-pdks"
     markers = ("sky130", "gf180", "ihp-sg13", "open_pdks", "open-pdks")
+
+    @staticmethod
+    def _inferred_range(name: str, default: str) -> str:
+        """Supply useful conservative values when source constraints are absent."""
+        try:
+            value = ast.literal_eval(default)
+        except (ValueError, SyntaxError):
+            value = default
+        lower = name.lower()
+        if isinstance(value, bool):
+            return "choices=[False, True]"
+        if isinstance(value, int):
+            if any(token in lower for token in ("count", "finger", "rows", "cols", "mult")):
+                values = [max(1, value // 2), max(1, value), max(2, value * 2)]
+            else:
+                values = [max(0, value - 1), value, value + 1]
+            return f"choices={list(dict.fromkeys(values))}"
+        if isinstance(value, float):
+            base = value if value > 0 else 1.0
+            return f"choices={[base * 0.5, base, base * 2.0]}"
+        if isinstance(value, str):
+            return f"choices=[{value!r}]"
+        return f"choices=[{default}]" if default else "choices=['']"
 
     def supports(self, root: Path) -> bool:
         if not root.is_dir():
@@ -81,24 +105,29 @@ class OpenPDKsPlugin(PDKPlugin):
                     for key in ("min", "max", "choices")
                     if (value := self._literal(keywords.get(key)))
                 ]
+                default = self._literal(keywords.get("default"))
                 parameters.append(
                     Parameter(
                         name,
-                        self._literal(keywords.get("default")),
-                        ", ".join(constraints),
+                        default,
+                        ", ".join(constraints) or self._inferred_range(name, default),
                     )
                 )
         for item in node.body:
             if isinstance(item, (ast.Assign, ast.AnnAssign)):
                 target = item.targets[0] if isinstance(item, ast.Assign) else item.target
                 if isinstance(target, ast.Name) and not target.id.startswith("_"):
-                    parameters.append(Parameter(target.id, self._literal(item.value)))
+                    default = self._literal(item.value)
+                    parameters.append(
+                        Parameter(target.id, default, self._inferred_range(target.id, default))
+                    )
             if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                 defaults = item.args.defaults
                 for argument, default in zip(item.args.args[-len(defaults) :], defaults):
                     if argument.arg != "self":
+                        value = self._literal(default)
                         parameters.append(
-                            Parameter(argument.arg, self._literal(default))
+                            Parameter(argument.arg, value, self._inferred_range(argument.arg, value))
                         )
         return parameters
 

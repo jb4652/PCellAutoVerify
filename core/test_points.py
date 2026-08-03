@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import itertools
+import math
 import re
 
 from .models import PCell, Parameter
@@ -65,27 +67,21 @@ def parameter_values(parameter: Parameter) -> list[str]:
     return result
 
 
-def generate_test_points(pcell: PCell, limit: int = 100) -> list[dict[str, str]]:
-    """Generate a baseline point plus one-parameter-at-a-time variations.
-
-    This avoids the combinatorial explosion of a full Cartesian product while
-    still exercising every representative boundary or choice.
-    """
+def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]:
+    """Generate a deterministic, evenly sampled Cartesian parameter matrix."""
     if limit <= 0 or not pcell.parameters:
         return []
 
     candidates = [parameter_values(parameter) for parameter in pcell.parameters]
-    baseline = {
-        parameter.name: (values[0] if values else "")
-        for parameter, values in zip(pcell.parameters, candidates)
-    }
-    points = [baseline]
-    for parameter, values in zip(pcell.parameters, candidates):
-        for value in values[1:]:
-            point = baseline.copy()
-            point[parameter.name] = value
-            if point not in points:
-                points.append(point)
-            if len(points) >= limit:
-                return points
-    return points
+    candidates = [values or [""] for values in candidates]
+    total = math.prod(len(values) for values in candidates)
+    combinations = itertools.product(*candidates)
+    if total <= limit:
+        selected = combinations
+    else:
+        wanted = {round(i * (total - 1) / (limit - 1)) for i in range(limit)}
+        selected = (values for index, values in enumerate(combinations) if index in wanted)
+    return [
+        {parameter.name: value for parameter, value in zip(pcell.parameters, values)}
+        for values in selected
+    ]

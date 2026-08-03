@@ -11,6 +11,17 @@ class Parameter:
 
 
 @dataclass(slots=True)
+class VerificationResult:
+    """The outcome and generated layout belonging to one test point."""
+
+    index: int
+    parameters: dict[str, str]
+    passed: bool
+    message: str
+    layout_path: str = ""
+
+
+@dataclass(slots=True)
 class PCell:
     name: str
     source: str

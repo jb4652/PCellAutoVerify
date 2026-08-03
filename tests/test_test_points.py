@@ -9,7 +9,7 @@ def test_parameter_values_support_scanner_constraints_and_choices():
     ]
 
 
-def test_generate_points_uses_defaults_for_blank_ranges_without_cartesian_product():
+def test_generate_points_builds_cartesian_matrix():
     pcell = PCell(
         "Device",
         "device.py",
@@ -18,10 +18,14 @@ def test_generate_points_uses_defaults_for_blank_ranges_without_cartesian_produc
 
     assert generate_test_points(pcell) == [
         {"w": "1", "fingers": "2"},
-        {"w": "2", "fingers": "2"},
-        {"w": "3", "fingers": "2"},
         {"w": "1", "fingers": "4"},
         {"w": "1", "fingers": "8"},
+        {"w": "2", "fingers": "2"},
+        {"w": "2", "fingers": "4"},
+        {"w": "2", "fingers": "8"},
+        {"w": "3", "fingers": "2"},
+        {"w": "3", "fingers": "4"},
+        {"w": "3", "fingers": "8"},
     ]
     assert generate_test_points(PCell("Simple", "x.py", [Parameter("w", "2")])) == [
         {"w": "2"}

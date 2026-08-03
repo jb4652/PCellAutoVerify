@@ -22,12 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import PCell, generate_test_points
+from core import KLayoutVerifier, PCell, VerificationResult, generate_test_points
 from database import PDKDatabase
 from plugins import PluginRegistry
 
 from .pdk_manager import PDKManagerDialog
 from .points_dialog import TestPointsDialog
+from .results_dialog import VerificationResultsDialog
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +42,8 @@ class MainWindow(QMainWindow):
         self.registry = PluginRegistry()
         self.current_cells: list[PCell] = []
         self.test_points: dict[int, list[dict[str, str]]] = {}
+        self.verification_results: dict[int, list[VerificationResult]] = {}
+        self.active_pdk_path = ""
         self.setWindowTitle("PCell Auto Verify")
         self.resize(1100, 700)
 
@@ -90,6 +93,11 @@ class MainWindow(QMainWindow):
         )
         self.verify_button.clicked.connect(self.verify)
         header.addWidget(self.verify_button)
+        self.results_button = QPushButton("DRC Results")
+        self.results_button.setEnabled(False)
+        self.results_button.setToolTip("View each result and open its generated layout")
+        self.results_button.clicked.connect(self.view_results)
+        header.addWidget(self.results_button)
         right_layout.addLayout(header)
         range_help = QLabel(
             "Edit Range / Choices using min=…, max=…; choices=[…]; or low..high. "
@@ -128,14 +136,18 @@ class MainWindow(QMainWindow):
         self.parameters.setRowCount(0)
         self.current_cells = []
         self.test_points.clear()
+        self.verification_results.clear()
+        self.active_pdk_path = ""
         self.generate_button.setEnabled(False)
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
+        self.results_button.setEnabled(False)
         self.parameter_title.setText("Select a PCell to configure parameters")
         active = next(
             (pdk for pdk in self.database.list_pdks() if pdk.active), None
         )
         if active:
+            self.active_pdk_path = active.path
             self.current_cells = active.pcells
             root = QTreeWidgetItem([active.name])
             root.setData(0, Qt.ItemDataRole.UserRole, None)
@@ -184,6 +196,7 @@ class MainWindow(QMainWindow):
         self.generate_button.setEnabled(False)
         self.view_button.setEnabled(bool(self.test_points.get(row)))
         self.verify_button.setEnabled(bool(self.test_points.get(row)))
+        self.results_button.setEnabled(bool(self.verification_results.get(row)))
         if row < 0 or row >= len(self.current_cells):
             self.parameter_title.setText("Select a PCell to configure parameters")
             return
@@ -208,8 +221,10 @@ class MainWindow(QMainWindow):
             return
         self.current_cells[row].parameters[item.row()].value_range = item.text()
         self.test_points.pop(row, None)
+        self.verification_results.pop(row, None)
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
+        self.results_button.setEnabled(False)
 
     def generate_points(self) -> None:
         row = self._selected_cell_index()
@@ -217,8 +232,10 @@ class MainWindow(QMainWindow):
             return
         points = generate_test_points(self.current_cells[row])
         self.test_points[row] = points
+        self.verification_results.pop(row, None)
         self.view_button.setEnabled(bool(points))
         self.verify_button.setEnabled(bool(points))
+        self.results_button.setEnabled(False)
         self.statusBar().showMessage(
             f"Generated {len(points)} test point(s) for {self.current_cells[row].name}"
         )
@@ -235,17 +252,33 @@ class MainWindow(QMainWindow):
         TestPointsDialog(self.current_cells[row], points, self).exec()
 
     def verify(self) -> None:
-        """发出验证请求，便于后续接入 KLayout/DRC 执行器。"""
+        """Generate layouts and execute the PDK's KLayout DRC deck."""
         row = self._selected_cell_index()
         points = self.test_points.get(row, [])
         if row < 0 or row >= len(self.current_cells) or not points:
             return
         cell = self.current_cells[row]
-        self.write_output(
-            f"Verification requested for '{cell.name}' with "
-            f"{len(points)} test point(s)."
-        )
+        self.verify_button.setEnabled(False)
+        self.write_output(f"Running KLayout DRC for '{cell.name}' ({len(points)} point(s)) …")
         self.verification_requested.emit(cell, points)
+        results = KLayoutVerifier(self.active_pdk_path).verify(cell, points)
+        self.verification_results[row] = results
+        passed = sum(result.passed for result in results)
+        failed = len(results) - passed
+        self.write_output(
+            f"DRC complete for '{cell.name}': {passed} passed, {failed} failed."
+        )
+        for result in results:
+            self.write_output(f"  #{result.index}: {'PASS' if result.passed else 'FAIL'} — {result.message}")
+        self.statusBar().showMessage(f"DRC complete: {passed} passed, {failed} failed")
+        self.results_button.setEnabled(bool(results))
+        self.verify_button.setEnabled(True)
+
+    def view_results(self) -> None:
+        row = self._selected_cell_index()
+        results = self.verification_results.get(row, [])
+        if 0 <= row < len(self.current_cells) and results:
+            VerificationResultsDialog(self.current_cells[row], results, self).exec()
 
     def write_output(self, message: str) -> None:
         """将生成或验证消息追加到主窗口输出区。"""
