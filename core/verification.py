@@ -53,6 +53,45 @@ layout = pya.Layout()
 values = json.loads(parameters)
 metal1_test_width = values.pop("metal1_test_width", None)
 library_path = os.environ.get("PCELL_VERIFY_LIBRARY")
+def load_source_declaration(source_path, class_name):
+    package_parts = []
+    package_dir = os.path.dirname(source_path)
+    while os.path.isfile(os.path.join(package_dir, "__init__.py")):
+        package_parts.insert(0, os.path.basename(package_dir))
+        package_dir = os.path.dirname(package_dir)
+    if package_parts:
+        sys.path.insert(0, package_dir)
+        source_module = os.path.splitext(os.path.basename(source_path))[0]
+        module_name = ".".join(package_parts + ([] if source_module == "__init__" else [source_module]))
+        namespace = vars(importlib.import_module(module_name))
+    else:
+        namespace = runpy.run_path(source_path)
+    cls = namespace.get(class_name)
+    if cls is None:
+        raise RuntimeError("PCell class not found: " + class_name)
+    return cls()
+
+changed = os.environ.get("PCELL_VERIFY_CALLBACK")
+if changed:
+    from pathlib import Path
+    from core.parameter_callback import evaluate_callback, evaluate_inverter_callback
+    from core.sky130_inverter import INVERTER_NAME
+
+    if library_path and class_name == INVERTER_NAME:
+        result = evaluate_inverter_callback(values)
+    else:
+        if library_path:
+            from core.sky130_library import load_library
+            library = load_library(Path(library_path))
+            declaration = library.layout().pcell_declaration(class_name)
+        else:
+            declaration = load_source_declaration(source_path, class_name)
+        if declaration is None or not hasattr(declaration, "coerce_parameters"):
+            raise ValueError(f"No parameter declaration available for {class_name}")
+        result = evaluate_callback(layout, declaration, changed, values)
+    Path(output).write_text(json.dumps(result), encoding="utf-8")
+    sys.exit(0)
+
 metadata = None
 if library_path:
     from pathlib import Path
@@ -69,22 +108,7 @@ if library_path:
         library = load_library(Path(library_path))
         cell = layout.create_cell(class_name, library.name(), values)
 else:
-    package_parts = []
-    package_dir = os.path.dirname(source_path)
-    while os.path.isfile(os.path.join(package_dir, "__init__.py")):
-        package_parts.insert(0, os.path.basename(package_dir))
-        package_dir = os.path.dirname(package_dir)
-    if package_parts:
-        sys.path.insert(0, package_dir)
-        source_module = os.path.splitext(os.path.basename(source_path))[0]
-        module_name = ".".join(package_parts + ([] if source_module == "__init__" else [source_module]))
-        namespace = vars(importlib.import_module(module_name))
-    else:
-        namespace = runpy.run_path(source_path)
-    cls = namespace.get(class_name)
-    if cls is None:
-        raise RuntimeError("PCell class not found: " + class_name)
-    declaration = cls()
+    declaration = load_source_declaration(source_path, class_name)
     layout.register_pcell(class_name, declaration)
     cell = layout.create_cell(class_name, values)
 if cell is None:
@@ -232,7 +256,7 @@ class KLayoutVerifier:
             if element.tag.rsplit("}", 1)[-1] == "item"
         )
 
-    def generate_layouts(self, pcell: PCell, points: list[dict[str, str]]) -> list[GeneratedLayout]:
+    def _library_path(self, pcell: PCell) -> Path | None:
         source = self.pdk_root / pcell.source
         # Historical imports sometimes stored only the source file or the library
         # directory. A MOS PCell from that tree still needs the compatibility code.
@@ -249,11 +273,46 @@ class KLayoutVerifier:
                 or find_sky130_python_dir(self.pdk_root)
             )
             if library_path is None:
-                message = f"Sky130A cells/__init__.py not found under {saved_path} or {self.pdk_root}"
-                return [
-                    GeneratedLayout(index, point, message)
-                    for index, point in enumerate(points, 1)
-                ]
+                raise ValueError(f"Sky130A cells/__init__.py not found under {saved_path} or {self.pdk_root}")
+        return library_path
+
+    @classmethod
+    def evaluate_parameter_edit(
+        cls, pdk_root: str, pcell: PCell, changed: str, point: dict[str, str],
+    ) -> dict | None:
+        with tempfile.TemporaryDirectory(prefix="pcell-callback-") as directory:
+            verifier = cls(pdk_root, directory)
+            source = verifier.pdk_root / pcell.source
+            library_path = verifier._library_path(pcell)
+            if not library_path and not source.is_file():
+                return None
+            output = Path(directory) / "callback.json"
+            runner = Path(directory) / "callback.py"
+            runner.write_text(_RUNNER, encoding="utf-8")
+            environment = verifier._environment()
+            environment.update({
+                "PCELL_VERIFY_SOURCE": str(source),
+                "PCELL_VERIFY_LIBRARY": str(library_path) if library_path else "",
+                "PCELL_VERIFY_CLASS": pcell.name,
+                "PCELL_VERIFY_PARAMETERS": json.dumps(verifier._values(point)),
+                "PCELL_VERIFY_OUTPUT": str(output),
+                "PCELL_VERIFY_CALLBACK": changed,
+            })
+            result = subprocess.run(
+                [sys.executable, str(runner)], capture_output=True, text=True,
+                errors="replace", timeout=30, env=environment,
+            )
+            if result.returncode or not output.is_file():
+                details = result.stderr.strip() or result.stdout.strip()
+                raise ValueError(details.splitlines()[-1] if details else "PCell callback did not return a result")
+            return json.loads(output.read_text(encoding="utf-8"))
+
+    def generate_layouts(self, pcell: PCell, points: list[dict[str, str]]) -> list[GeneratedLayout]:
+        source = self.pdk_root / pcell.source
+        try:
+            library_path = self._library_path(pcell)
+        except ValueError as error:
+            return [GeneratedLayout(index, point, str(error)) for index, point in enumerate(points, 1)]
         self.output_root.mkdir(parents=True, exist_ok=True)
         runner = self.output_root / "instantiate.py"
         runner.write_text(_RUNNER, encoding="utf-8")
@@ -262,6 +321,7 @@ class KLayoutVerifier:
             layout = self.output_root / f"{pcell.name}_{index:04d}.gds"
             preview = self.output_root / f"{pcell.name}_{index:04d}.png"
             environment = self._environment()
+            environment.pop("PCELL_VERIFY_CALLBACK", None)
             environment.update({
                 "PCELL_VERIFY_SOURCE": str(source),
                 "PCELL_VERIFY_LIBRARY": str(library_path) if library_path else "",

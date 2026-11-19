@@ -76,7 +76,10 @@ class TestPointsDialog(QDialog):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         for row, point in enumerate(points):
-            table.setItem(row, 0, QTableWidgetItem(f"VP-{point.index:03d}"))
+            label = f"VP-{point.index:03d}"
+            if point.origin == "manual":
+                label += " · Manual"
+            table.setItem(row, 0, QTableWidgetItem(label))
             status = QTableWidgetItem(point.message.splitlines()[-1] if point.message else "")
             status.setToolTip(point.message)
             table.setItem(row, 3, status)
@@ -84,7 +87,8 @@ class TestPointsDialog(QDialog):
                 self._add_layout(table, row, point)
             if has_negative_case:
                 width = point.parameters.get("metal1_test_width")
-                table.setItem(row, 4, QTableWidgetItem("FAIL" if width else "PASS"))
+                expected = "—" if point.origin == "manual" else ("FAIL" if width else "PASS")
+                table.setItem(row, 4, QTableWidgetItem(expected))
                 table.setItem(row, 5, QTableWidgetItem(width or "—"))
             for column, parameter in enumerate(pcell.parameters, 4 + len(test_columns)):
                 table.setItem(

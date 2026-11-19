@@ -1,6 +1,8 @@
 """应用主窗口。"""
 
+from dataclasses import replace
 from pathlib import Path, PurePath
+from subprocess import TimeoutExpired
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
@@ -9,6 +11,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
     QMainWindow,
     QPushButton,
@@ -55,6 +58,7 @@ class MainWindow(QMainWindow):
         self.test_points: dict[int, list[GeneratedLayout]] = {}
         self.verification_results: dict[int, list[VerificationResult]] = {}
         self.extraction_results: dict[tuple[int, str], list[ExtractionResult]] = {}
+        self.callback_editable: dict[int, dict[str, bool]] = {}
         self.active_pdk_path = ""
         self.active_sky130a = False
         self.setWindowTitle("PCell Auto Verify")
@@ -85,10 +89,16 @@ class MainWindow(QMainWindow):
             self.style().standardIcon(
                 self.style().StandardPixmap.SP_FileDialogNewFolder
             ),
-            "Generate Points",
+            "Automatic Test Points Generation",
             self,
         )
         self.generate_action.triggered.connect(self.generate_points)
+        self.manual_generate_action = QAction(
+            self.style().standardIcon(self.style().StandardPixmap.SP_FileIcon),
+            "Manual Test Points Generation",
+            self,
+        )
+        self.manual_generate_action.triggered.connect(self.generate_manual_point)
         self.view_points_action = QAction(
             self.style().standardIcon(
                 self.style().StandardPixmap.SP_FileDialogContentsView
@@ -116,6 +126,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         verification_actions = (
             self.generate_action,
+            self.manual_generate_action,
             self.view_points_action,
             self.verify_action,
             self.results_action,
@@ -160,16 +171,20 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         header = QHBoxLayout()
         self.parameter_title = QLabel("Select a PCell to configure parameters")
-        header.addWidget(self.parameter_title)
-        header.addStretch()
-        self.generate_button = QPushButton("Generate Test Points")
+        right_layout.addWidget(self.parameter_title)
+        self.generate_button = QPushButton("Automatic Test Points Generation")
         self.generate_button.setEnabled(False)
         self.generate_button.clicked.connect(self.generate_points)
         header.addWidget(self.generate_button)
+        self.manual_generate_button = QPushButton("Manual Test Points Generation")
+        self.manual_generate_button.setEnabled(False)
+        self.manual_generate_button.clicked.connect(self.generate_manual_point)
+        header.addWidget(self.manual_generate_button)
         self.view_button = QPushButton("View Test Points")
         self.view_button.setEnabled(False)
         self.view_button.clicked.connect(self.view_points)
         header.addWidget(self.view_button)
+        header.addStretch()
         right_layout.addLayout(header)
         checks = QHBoxLayout()
         self.verify_button = QPushButton("DRC")
@@ -228,6 +243,7 @@ class MainWindow(QMainWindow):
 
     def _sync_actions(self) -> None:
         self.generate_action.setEnabled(self.generate_button.isEnabled())
+        self.manual_generate_action.setEnabled(self.manual_generate_button.isEnabled())
         self.view_points_action.setEnabled(self.view_button.isEnabled())
         self.verify_action.setEnabled(self.verify_button.isEnabled())
         self.results_action.setEnabled(self.results_button.isEnabled())
@@ -251,11 +267,13 @@ class MainWindow(QMainWindow):
         self.parameters.setRowCount(0)
         self.current_cells = []
         self.test_points.clear()
+        self.callback_editable.clear()
         self.verification_results.clear()
         self.extraction_results.clear()
         self.active_pdk_path = ""
         self.active_sky130a = False
         self.generate_button.setEnabled(False)
+        self.manual_generate_button.setEnabled(False)
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
         self.results_button.setEnabled(False)
@@ -329,6 +347,7 @@ class MainWindow(QMainWindow):
         row = self._selected_cell_index()
         self.parameters.setRowCount(0)
         self.generate_button.setEnabled(False)
+        self.manual_generate_button.setEnabled(False)
         self.view_button.setEnabled(bool(self.test_points.get(row)))
         self.verify_button.setEnabled(any(point.layout_path for point in self.test_points.get(row, [])))
         self.results_button.setEnabled(bool(self.verification_results.get(row)))
@@ -340,6 +359,7 @@ class MainWindow(QMainWindow):
         self.parameter_title.setText(f"Parameters — {cell.name}")
         parameters = cell.parameters
         self.generate_button.setEnabled(True)
+        self.manual_generate_button.setEnabled(True)
         self.parameters.blockSignals(True)
         self.parameters.setRowCount(len(parameters))
         for index, parameter in enumerate(parameters):
@@ -349,7 +369,8 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(parameter.description)
-                if column == 0 or parameter.hidden or parameter.readonly:
+                if (column == 0 or parameter.hidden or parameter.readonly
+                        or not self.callback_editable.get(row, {}).get(parameter.name, True)):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.parameters.setItem(index, column, item)
         self.parameters.blockSignals(False)
@@ -362,18 +383,42 @@ class MainWindow(QMainWindow):
         parameter = self.current_cells[row].parameters[item.row()]
         if parameter.hidden or parameter.readonly:
             return
-        if item.column() == 1:
-            parameter.default = item.text()
-        else:
+        if not self.callback_editable.get(row, {}).get(parameter.name, True):
+            return
+        if item.column() == 2:
             parameter.value_range = item.text()
-        self.test_points.pop(row, None)
-        self.verification_results.pop(row, None)
-        for mode in self.extraction_buttons:
-            self.extraction_results.pop((row, mode), None)
-        self.view_button.setEnabled(False)
-        self.verify_button.setEnabled(False)
-        self.results_button.setEnabled(False)
-        self._sync_actions()
+            return
+
+        cell = self.current_cells[row]
+        proposed = default_test_point(cell)
+        if item.text().strip():
+            proposed[parameter.name] = item.text()
+        else:
+            proposed.pop(parameter.name, None)
+        try:
+            result = KLayoutVerifier.evaluate_parameter_edit(
+                self.active_pdk_path, cell, parameter.name, proposed,
+            )
+        except (OSError, ValueError, TimeoutExpired) as error:
+            self.show_parameters(None, None)
+            QMessageBox.warning(self, "PCell Callback", str(error))
+            return
+
+        parameter.default = proposed.get(parameter.name, "")
+        if result is None:
+            return
+        self.callback_editable[row] = result["editable"]
+        messages = list(result["messages"])
+        for field in cell.parameters:
+            if field.name in result["values"]:
+                effective = result["values"][field.name]
+                previous = field.default
+                if KLayoutVerifier._values({"value": previous}) != KLayoutVerifier._values({"value": effective}):
+                    messages.append(f"{field.name}: {previous or '(unset)'} → {effective or '(unset)'}")
+                field.default = effective
+        self.show_parameters(None, None)
+        if messages:
+            QMessageBox.information(self, "PCell Callback", "\n".join(dict.fromkeys(messages)))
 
     def generate_points(self) -> None:
         row = self._selected_cell_index()
@@ -384,6 +429,15 @@ class MainWindow(QMainWindow):
         points = [defaults]
         if self.active_sky130a and cell.name in SKY130_REGRESSION_CELLS:
             points.append({**defaults, "metal1_test_width": "0.035"})
+        self._generate_layouts(row, points, "automatic")
+
+    def generate_manual_point(self) -> None:
+        row = self._selected_cell_index()
+        if 0 <= row < len(self.current_cells):
+            self._generate_layouts(row, [default_test_point(self.current_cells[row])], "manual")
+
+    def _generate_layouts(self, row: int, points: list[dict[str, str]], origin: str) -> None:
+        cell = self.current_cells[row]
         self.verification_results.pop(row, None)
         for mode in self.extraction_buttons:
             self.extraction_results.pop((row, mode), None)
@@ -394,12 +448,21 @@ class MainWindow(QMainWindow):
                 GeneratedLayout(index, point, f"GDS generation failed: {error}")
                 for index, point in enumerate(points, 1)
             ]
-        self.test_points[row] = layouts
-        self.view_button.setEnabled(bool(layouts))
-        self.verify_button.setEnabled(any(point.layout_path for point in layouts))
+        previous = self.test_points.get(row, [])
+        created = [replace(point, origin=origin) for point in layouts]
+        if origin == "manual":
+            combined = [*previous, *created]
+        else:
+            combined = [*created, *(point for point in previous if point.origin == "manual")]
+        self.test_points[row] = [
+            replace(point, index=index) for index, point in enumerate(combined, 1)
+        ]
+        self.view_button.setEnabled(bool(combined))
+        self.verify_button.setEnabled(any(point.layout_path for point in combined))
         self.results_button.setEnabled(False)
         self._sync_actions()
-        for point in layouts:
+        first_new = len(previous) if origin == "manual" else 0
+        for point in self.test_points[row][first_new:first_new + len(layouts)]:
             message = f"GDS: {point.layout_path}" if point.layout_path else point.message
             self.write_output(f"  #{point.index}: {message}")
         self.statusBar().showMessage(

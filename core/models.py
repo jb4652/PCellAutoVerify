@@ -20,6 +20,7 @@ class GeneratedLayout:
     message: str
     layout_path: str = ""
     preview_path: str = ""
+    origin: str = "automatic"
 
 
 @dataclass(slots=True)

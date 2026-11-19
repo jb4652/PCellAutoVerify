@@ -25,13 +25,13 @@ Nplus、接触孔及源漏 Metal1 的 NMOS 版图，可用于第一次生成测�
 自带 DRC，再从 **View Test Points → View Layout** 打开版图查看。示例还包含可正常生成
 版图、但预期无法通过 DRC 的 0.2 µm 栅长边界，用于检查失败结果流程。
 
-激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。`sky130A` 的注册名称直接列在根节点下，名称后的括号显示源码文件名，悬停可查看完整路径。右侧保留 KLayout 声明的完整参数列表，隐藏和只读参数仅供查看。选择 PCell 后，右侧的 **Default** 和 **Range / Choices** 均可直接编辑；后者支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。因此，当静态扫描无法解析 PDK 源码中的动态默认值时，可以在生成测试点前手工填写正确的数值。未填写的未知默认值不会再以空字符串传给 KLayout，而是从参数字典中省略，让 PCell 使用自身的运行时默认值。扫描器会为源码中没有约束的参数根据已解析默认值补充一组保守的布尔、整数或浮点候选值。点击 **Generate Test Points** 会读取右侧当前默认值，生成测试点和对应的 GDS。**View Test Points** 中可以查看参数、版图缩略图和 **View Layout**。修改默认值后可重新生成。未设置的参数由 KLayout 使用库默认值，隐藏或只读参数不参与配置。
+激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。`sky130A` 的注册名称直接列在根节点下，名称后的括号显示源码文件名，悬停可查看完整路径。右侧保留 KLayout 声明的完整参数列表，隐藏和只读参数仅供查看。选择 PCell 后，右侧的 **Default** 和 **Range / Choices** 均可直接编辑；后者支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。因此，当静态扫描无法解析 PDK 源码中的动态默认值时，可以在生成测试点前手工填写正确的数值。未填写的未知默认值不会再以空字符串传给 KLayout，而是从参数字典中省略，让 PCell 使用自身的运行时默认值。扫描器会为源码中没有约束的参数根据已解析默认值补充一组保守的布尔、整数或浮点候选值。点击 **Automatic Test Points Generation** 会读取右侧当前默认值，生成测试点和对应的 GDS。**View Test Points** 中可以查看参数、版图缩略图和 **View Layout**。修改默认值后可重新生成。未设置的参数由 KLayout 使用库默认值，隐藏或只读参数不参与配置。
 
 **DRC** 检查已经生成的 GDS。Sky130A 使用 Magic，其他 PDK 仍使用 KLayout 规则文件。检查结果和 PDF 汇总可在 **DRC Results** 查看，底部 **Output** 会显示每组版图的生成路径及 DRC 结果。
 
 ## 生成 Sky130A NMOS
 
-激活 `sky130A` 并选择 `nfet`。点击 **Generate Test Points** 后，GDS 和实际生效的参数 JSON 会保存到 `output/verification/run-*/`。确认版图后点击 **DRC**。请确保兼容该 PDK 的 Magic 已在 `PATH` 中。Magic 会在同一目录写出 `*_drc.txt` 和 `*_magic.log`。应用优先使用 PDK 的 `libs.tech/magic/sky130A.magicrc`，并根据导入位置设置 `PDK_ROOT`。如果没有原版 rcfile，则使用工程的 `config/sky130A.magicrc`。
+激活 `sky130A` 并选择 `nfet`。点击 **Automatic Test Points Generation** 后，GDS 和实际生效的参数 JSON 会保存到 `output/verification/run-*/`。确认版图后点击 **DRC**。请确保兼容该 PDK 的 Magic 已在 `PATH` 中。Magic 会在同一目录写出 `*_drc.txt` 和 `*_magic.log`。应用优先使用 PDK 的 `libs.tech/magic/sky130A.magicrc`，并根据导入位置设置 `PDK_ROOT`。如果没有原版 rcfile，则使用工程的 `config/sky130A.magicrc`。
 
 从工程根目录也可以单独生成 GDS：
 
@@ -72,9 +72,13 @@ python scripts/check_nmos_rcx.py
 
 激活含有 `nfet` 和 `pfet` 的 Sky130A 后，在 **Custom PCells** 中选择 `cmos_inverter`。它是应用提供的组合器件，原厂的 18 个 PCell 仍按库注册结果显示。默认各用一个单指 1.8 V NFET 和 PFET，宽度为 0.42 µm，长度为 0.15 µm。可编辑 `wn`、`ln`、`wp`、`lp`，尺寸按 0.005 µm 工艺网格输入。
 
-**Generate Test Points** 生成 GDS，**View Test Points** 可预览。两管共栅接 `A`，共漏接 `Y`，源极和体端接各自的 `VDD` 或 `VSS`。**DRC** 检查整个版图，**LVS** 用独立参考网表核对两个器件和四个端口，**RCX** 提取器件与互连寄生参数。沿用 Sky130A 的 Magic 和 Netgen 配置。
+**Automatic Test Points Generation** 生成 GDS，**View Test Points** 可预览。两管共栅接 `A`，共漏接 `Y`，源极和体端接各自的 `VDD` 或 `VSS`。**DRC** 检查整个版图，**LVS** 用独立参考网表核对两个器件和四个端口，**RCX** 提取器件与互连寄生参数。沿用 Sky130A 的 Magic 和 Netgen 配置。
 
 Sky130A 的 `nfet`、`pfet` 和 `cmos_inverter` 各生成两个测试点。第一组使用当前参数，初始为器件默认参数。第二组额外将 `metal1_test_width` 设为 0.035 µm，加入一块与电路隔离的 0.035 × 0.500 µm Metal1 矩形，预期触发 DRC 的 `met1.6` 最小面积规则。**View Test Points** 会标出预期 DRC 结果，**DRC Results** 显示实测结果。这个负例针对 DRC，晶体管接线保持原样。
+
+### 手动测试点与参数回调
+
+在右侧修改 **Default** 后，应用调用 PCell 的参数回调和校正逻辑。回调给出提示或系统修正了参数时，界面会弹出 **PCell Callback**，并显示生效值。例如 Sky130A `nfet` 的 `l=0.10 µm` 会校正为 `0.15 µm`。点击 **Manual Test Points Generation** 会以当前生效值生成并追加一个测试点。手动点在 **View Test Points** 中标为 **Manual**，重新生成自动用例时仍会保留。
 
 ## 开发
 

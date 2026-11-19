@@ -41,18 +41,26 @@ def _terminals(layout, cell, gate_on_top: bool):
     return tuple((_grid(box.center().x), _grid(box.center().y)) for box in (source, drain, gate))
 
 
-def instantiate_inverter(layout, python_dir: Path, overrides: dict):
-    import klayout.db as kdb
-
+def inverter_dimensions(overrides: dict, *, coerce: bool = False) -> dict:
     dimensions = {**_DEFAULTS, **overrides}
     for name, minimum in _DEFAULTS.items():
         value = float(dimensions[name])
-        if not math.isfinite(value) or value < minimum:
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+        if coerce:
+            value = _grid(max(value, minimum) * 1000) / 1000
+        if value < minimum:
             raise ValueError(f"{name} must be at least {minimum} µm")
         if not math.isclose(value * 1000, _grid(value * 1000), abs_tol=1e-8):
             raise ValueError(f"{name} must be on the 0.005 µm manufacturing grid")
         dimensions[name] = value
+    return dimensions
 
+
+def instantiate_inverter(layout, python_dir: Path, overrides: dict):
+    import klayout.db as kdb
+
+    dimensions = inverter_dimensions(overrides)
     library = load_mos_library(python_dir)
     nfet, nmeta = instantiate_library_mos(layout, library, "nfet", {
         "w": dimensions["wn"], "l": dimensions["ln"], "nf": 1, "type": INVERTER_MODELS[0], "bulk": "None", "gate_con_pos": "top",
