@@ -14,6 +14,15 @@ class Parameter:
 
 
 @dataclass(slots=True)
+class GeneratedLayout:
+    index: int
+    parameters: dict[str, str]
+    message: str
+    layout_path: str = ""
+    preview_path: str = ""
+
+
+@dataclass(slots=True)
 class VerificationResult:
     """The outcome and generated layout belonging to one test point."""
 

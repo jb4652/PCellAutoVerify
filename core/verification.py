@@ -13,7 +13,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .models import PCell, VerificationResult
+from .magic_drc import check_sky130_layout
+from .models import GeneratedLayout, PCell, VerificationResult
 from .sky130_library import (
     SKY130_PYTHON_PATH,
     find_sky130_python_dir,
@@ -120,7 +121,7 @@ if preview:
 
 
 class KLayoutVerifier:
-    """Generate every layout and run the first DRC deck found in the PDK."""
+    """Generate GDS with KLayout and check it with the PDK’s DRC engine."""
 
     def __init__(self, pdk_root: str, output_root: str | None = None):
         self.pdk_root = sky130_pdk_root(Path(pdk_root).expanduser().absolute()).resolve()
@@ -201,19 +202,18 @@ class KLayoutVerifier:
         return environment
 
     @staticmethod
-    def _violation_count(report: Path) -> int:
+    def _violation_count(report: Path) -> int | None:
         """Count result-database items without depending on XML formatting."""
         try:
             root = ET.parse(report).getroot()
         except (ET.ParseError, OSError):
-            return 0
+            return None
         return sum(
             1 for element in root.iter()
             if element.tag.rsplit("}", 1)[-1] == "item"
         )
 
-    def verify(self, pcell: PCell, points: list[dict[str, str]]) -> list[VerificationResult]:
-        executable = shutil.which("klayout")
+    def generate_layouts(self, pcell: PCell, points: list[dict[str, str]]) -> list[GeneratedLayout]:
         source = self.pdk_root / pcell.source
         # Historical imports sometimes stored only the source file or the library
         # directory. An nfet from that tree still needs the NMOS compatibility code.
@@ -232,14 +232,13 @@ class KLayoutVerifier:
             if library_path is None:
                 message = f"Sky130A cells/__init__.py not found under {saved_path} or {self.pdk_root}"
                 return [
-                    VerificationResult(index, point, False, message)
+                    GeneratedLayout(index, point, message)
                     for index, point in enumerate(points, 1)
                 ]
-        deck = self._deck()
         self.output_root.mkdir(parents=True, exist_ok=True)
         runner = self.output_root / "instantiate.py"
         runner.write_text(_RUNNER, encoding="utf-8")
-        results: list[VerificationResult] = []
+        results: list[GeneratedLayout] = []
         for index, point in enumerate(points, 1):
             layout = self.output_root / f"{pcell.name}_{index:04d}.gds"
             preview = self.output_root / f"{pcell.name}_{index:04d}.png"
@@ -263,58 +262,75 @@ class KLayoutVerifier:
                     capture_output=True, text=True, timeout=120, env=environment,
                 )
             except (OSError, subprocess.TimeoutExpired) as error:
-                results.append(VerificationResult(index, point, False, f"GDS generation failed: {error}"))
+                results.append(GeneratedLayout(index, point, f"GDS generation failed: {error}"))
                 continue
             if generated.returncode or not layout.exists():
                 message = (generated.stderr or generated.stdout or "PCell generation failed").strip()
-                results.append(VerificationResult(index, point, False, message[-1000:]))
+                results.append(GeneratedLayout(index, point, message[-1000:]))
                 continue
-            if not executable or deck is None:
-                reason = (
-                    "KLayout executable not found" if not executable
-                    else "No KLayout DRC deck (*.lydrc or *.drc) found"
-                )
-                results.append(VerificationResult(
-                    index, point, False, reason,
-                    str(layout), str(preview) if preview.exists() else "",
-                ))
-                continue
-            report = self.output_root / f"{pcell.name}_{index:04d}.lyrdb"
-            # Rule decks do not agree on the runtime-data name used for the
-            # selected cell.  In particular, GF180's component decks read
-            # ``cell_name`` while other open-PDK decks use ``topcell`` or
-            # ``cell``.  Supplying all three aliases is harmless to KLayout
-            # and prevents source(input, "") from looking up an empty cell.
-            runtime_data = (
-                ("input", layout),
-                ("report", report),
-                ("topcell", "VERIFY_TOP"),
-                ("cell_name", "VERIFY_TOP"),
-                ("cell", "VERIFY_TOP"),
-            )
-            drc_arguments = [executable, "-b", "-r", str(deck)]
-            for name, value in runtime_data:
-                drc_arguments.extend(("-rd", f"{name}={value}"))
-            preview_path = str(preview) if preview.exists() else ""
-            try:
-                checked = subprocess.run(
-                    drc_arguments,
-                    capture_output=True, text=True, timeout=300,
-                    cwd=self.pdk_root, env=environment,
-                )
-            except (OSError, subprocess.TimeoutExpired) as error:
-                results.append(VerificationResult(
-                    index, point, False, f"DRC could not complete: {error}", str(layout), preview_path,
-                ))
-                continue
-            violations = self._violation_count(report) if report.exists() else 0
-            passed = checked.returncode == 0 and report.exists() and violations == 0
-            message = "DRC passed" if passed else (
-                f"DRC found {violations} violation(s)" if report.exists() else
-                (checked.stderr or checked.stdout or "DRC did not create a report").strip()[-1000:]
-            )
-            results.append(VerificationResult(
-                index, point, passed, message, str(layout),
-                preview_path,
+            results.append(GeneratedLayout(
+                index, point, "GDS generated", str(layout), str(preview) if preview.exists() else "",
             ))
         return results
+
+    def check_layouts(self, layouts: list[GeneratedLayout]) -> list[VerificationResult]:
+        """Check the existing artifacts without invoking the PCell generator."""
+        use_magic = is_sky130a(self.pdk_root.name) or (
+            self.pdk_root / "libs.tech/magic/sky130A.tech"
+        ).is_file()
+        deck = None if use_magic else self._deck()
+        executable = None if use_magic else shutil.which("klayout")
+        results = []
+        for generated in layouts:
+            passed = False
+            layout = Path(generated.layout_path)
+            if not generated.layout_path:
+                message = generated.message
+            elif not layout.is_file():
+                message = f"GDS file not found: {layout}"
+            elif use_magic:
+                passed, message = check_sky130_layout(self.pdk_root, layout)
+            elif not executable:
+                message = "KLayout executable not found"
+            elif deck is None:
+                message = "No KLayout DRC deck (*.lydrc or *.drc) found"
+            else:
+                passed, message = self._check_klayout(executable, deck, layout)
+            results.append(VerificationResult(
+                generated.index, generated.parameters, passed, message,
+                generated.layout_path if layout.is_file() else "", generated.preview_path,
+            ))
+        return results
+
+    def _check_klayout(self, executable: str, deck: Path, layout: Path) -> tuple[bool, str]:
+        report = layout.with_suffix(".lyrdb")
+        report.unlink(missing_ok=True)
+        # Different decks use different variables for the top cell.
+        runtime_data = (
+            ("input", layout),
+            ("report", report),
+            ("topcell", "VERIFY_TOP"),
+            ("cell_name", "VERIFY_TOP"),
+            ("cell", "VERIFY_TOP"),
+        )
+        arguments = [executable, "-b", "-r", str(deck)]
+        for name, value in runtime_data:
+            arguments.extend(("-rd", f"{name}={value}"))
+        try:
+            checked = subprocess.run(
+                arguments, capture_output=True, text=True, timeout=300,
+                cwd=self.pdk_root, env=self._environment(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return False, f"DRC could not complete: {error}"
+        violations = self._violation_count(report)
+        if checked.returncode or violations is None:
+            message = checked.stderr or checked.stdout or "DRC did not create a valid report"
+            return False, message.strip()[-1000:]
+        if violations:
+            return False, f"DRC found {violations} violation(s)"
+        return True, "DRC passed"
+
+    def verify(self, pcell: PCell, points: list[dict[str, str]]) -> list[VerificationResult]:
+        """Generate and check in one operation for existing non-GUI callers."""
+        return self.check_layouts(self.generate_layouts(pcell, points))

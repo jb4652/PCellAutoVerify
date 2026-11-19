@@ -56,7 +56,7 @@ def test_pcell_runner_uses_environment_instead_of_unsupported_separator(tmp_path
     python_paths = generation_options["env"]["PYTHONPATH"].split(os.pathsep)
     assert str(Path(sysconfig.get_path("stdlib")).resolve()) not in python_paths
     assert any("site-packages" in path for path in python_paths)
-    assert calls[1][1]["env"] is generation_options["env"]
+    assert calls[1][1]["env"]["PYTHONPATH"] == generation_options["env"]["PYTHONPATH"]
     drc_command = calls[1][0]
     assert [
         drc_command[index + 1]
@@ -278,5 +278,5 @@ def test_legacy_nfet_uses_library_and_keeps_gds_without_drc(tmp_path: Path):
 
     assert verifier.pdk_root == root
     assert not result.passed
-    assert "KLayout executable not found" in result.message
+    assert "Magic executable not found" in result.message
     assert Path(result.layout_path).is_file()

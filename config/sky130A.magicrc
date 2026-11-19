@@ -1,0 +1,10 @@
+# Portable fallback for installations that ship the technology without a Magic rcfile.
+# PDK_ROOT is the directory containing sky130A, as in the upstream rcfile.
+set pdk [file join [file normalize $env(PDK_ROOT)] sky130A]
+set techfile [file join $pdk libs.tech magic sky130A.tech]
+if {![file isfile $techfile]} {error "Sky130A technology file not found: $techfile"}
+tech load $techfile
+if {[tech name] ne "sky130A"} {error "Unable to load Sky130A technology"}
+if {[lindex [tech lambda] 1] < 2} {scalegrid 1 2}
+drc euclidean on
+snap lambda

@@ -11,20 +11,28 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QToolBar
 
 from core import KLayoutVerifier, PCell, PDK, Parameter, VerificationResult
+from core.models import GeneratedLayout
 from database import PDKDatabase
 from gui import MainWindow
 from plugins import PluginRegistry
 
 
 def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(
-        KLayoutVerifier,
-        "verify",
-        lambda self, cell, points: [
-            VerificationResult(index, point, True, "DRC passed")
-            for index, point in enumerate(points, 1)
-        ],
-    )
+    generated = []
+    checked = []
+    layout = tmp_path / "nfet.gds"
+
+    def generate(self, cell, points):
+        generated.extend(points)
+        layout.touch()
+        return [GeneratedLayout(1, points[0], "GDS generated", str(layout))]
+
+    def check(self, layouts):
+        checked.extend(layouts)
+        return [VerificationResult(1, layouts[0].parameters, True, "DRC passed")]
+
+    monkeypatch.setattr(KLayoutVerifier, "generate_layouts", generate)
+    monkeypatch.setattr(KLayoutVerifier, "check_layouts", check)
     app = QApplication.instance() or QApplication([])
     database = PDKDatabase(tmp_path / "gui.sqlite")
     pdk_id = database.import_pdk(
@@ -53,7 +61,7 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path, monkeyp
     ]
     toolbar = window.findChild(QToolBar, "verificationToolbar")
     assert toolbar is not None
-    assert "Run Verify" in [action.text() for action in toolbar.actions()]
+    assert "DRC" in [action.text() for action in toolbar.actions()]
     toolbar_buttons = [
         action for action in toolbar.actions() if not action.isSeparator()
     ]
@@ -83,7 +91,11 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path, monkeyp
     assert window.current_cells[0].parameters[0].default == "1.5"
     window.generate_points()
     assert window.verify_button.isEnabled()
+    assert layout.is_file()
+    assert generated == [{"w": "1.5"}] and not checked
     window.verify()
+    assert len(generated) == len(checked) == 1
+    assert checked[0].layout_path == str(layout)
 
     assert requested[0][0].name == "NfetPCell"
     assert requested[0][1] == [{"w": "1.5"}]
@@ -173,7 +185,7 @@ class sky130(kdb.Library):
             assert window.parameters.item(row, 0).text() == name
             assert not window.parameters.item(row, 1).flags() & Qt.ItemFlag.ItemIsEditable
         window.generate_points()
-        assert window.test_points[0] == [{"width": "0.6", "length": "1.0"}]
+        assert window.test_points[0][0].parameters == {"width": "0.6", "length": "1.0"}
     finally:
         window.close()
         database.close()

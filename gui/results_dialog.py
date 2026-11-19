@@ -1,16 +1,16 @@
-"""Detailed DRC results with layout previews and a printable PDF report."""
+"""Detailed DRC results with a printable PDF report."""
 
 import html
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QTemporaryDir, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QPageSize, QPdfWriter, QPixmap, QTextDocument
+from PySide6.QtCore import QTemporaryDir
+from PySide6.QtGui import QColor, QPageSize, QPdfWriter, QTextDocument
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout, QLabel,
-    QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
+    QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
+    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout,
 )
 
@@ -36,12 +36,11 @@ class VerificationResultsDialog(QDialog):
         self.pdf_button.setEnabled(self._report_path.exists())
         self.pdf_button.clicked.connect(self._show_pdf_report)
 
-        table = QTableWidget(len(results), 5)
+        table = QTableWidget(len(results), 3)
         table.setHorizontalHeaderLabels(
-            ["#", "Result", "Parameters / Message", "Layout", "View Layout"]
+            ["#", "Result", "Parameters / Message"]
         )
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         for row, result in enumerate(results):
             table.setItem(row, 0, QTableWidgetItem(str(result.index)))
@@ -50,19 +49,6 @@ class VerificationResultsDialog(QDialog):
             table.setItem(row, 1, status)
             details = ", ".join(f"{key}={value}" for key, value in result.parameters.items())
             table.setItem(row, 2, QTableWidgetItem(f"{details}\n{result.message}"))
-            if result.layout_path:
-                preview = self._thumbnail(result.preview_path)
-                preview.setToolTip(result.layout_path)
-                table.setCellWidget(row, 3, preview)
-                button = QPushButton("View Layout")
-                button.clicked.connect(
-                    lambda checked=False, layout=result.layout_path, preview=result.preview_path:
-                    self._view_layout(layout, preview)
-                )
-                button.setEnabled(Path(result.layout_path).is_file())
-                button.setToolTip(result.layout_path)
-                table.setCellWidget(row, 4, button)
-                table.setRowHeight(row, 110)
         layout.addWidget(table)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
@@ -117,46 +103,6 @@ class VerificationResultsDialog(QDialog):
             return
         PdfReportDialog(self._report_path, self).exec()
 
-    @staticmethod
-    def _thumbnail(path: str) -> QLabel:
-        label = QLabel("Preview unavailable")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setMinimumSize(150, 100)
-        if path and Path(path).exists():
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                label.setPixmap(pixmap.scaled(
-                    150, 100, Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                ))
-        return label
-
-    def _view_layout(self, path: str, preview: str) -> None:
-        pixmap = QPixmap(preview) if preview else QPixmap()
-        if pixmap.isNull():
-            executable = shutil.which("klayout")
-            if executable:
-                started, _ = QProcess.startDetached(executable, [path])
-                if started:
-                    return
-            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent))):
-                QMessageBox.warning(self, "View Layout", f"GDS file:\n{path}")
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Layout Preview")
-        dialog.resize(900, 650)
-        layout = QVBoxLayout(dialog)
-        image = QLabel()
-        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        image.setPixmap(pixmap)
-        scroll = QScrollArea()
-        scroll.setWidget(image)
-        scroll.setWidgetResizable(True)
-        layout.addWidget(scroll)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        dialog.exec()
 
 
 class PdfReportDialog(QDialog):

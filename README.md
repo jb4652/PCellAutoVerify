@@ -22,16 +22,16 @@ python main.py
 导入名为 `gf180mcuA` 的 PDK 时，程序还会在列表最前面加入一个
 `GF180MCUANMOS` 入门 PCell。它提供栅宽和栅长参数，并生成包含 COMP、Poly2、
 Nplus、接触孔及源漏 Metal1 的 NMOS 版图，可用于第一次生成测试点、运行 PDK
-自带 DRC，再从 **DRC Results → Open Layout** 打开版图查看。示例还包含可正常生成
+自带 DRC，再从 **View Test Points → View Layout** 打开版图查看。示例还包含可正常生成
 版图、但预期无法通过 DRC 的 0.2 µm 栅长边界，用于检查失败结果流程。
 
-激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。`sky130A` 的注册名称直接列在根节点下，名称后的括号显示源码文件名，悬停可查看完整路径。右侧保留 KLayout 声明的完整参数列表，隐藏和只读参数仅供查看。选择 PCell 后，右侧的 **Default** 和 **Range / Choices** 均可直接编辑；后者支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。因此，当静态扫描无法解析 PDK 源码中的动态默认值时，可以在生成测试点前手工填写正确的数值。未填写的未知默认值不会再以空字符串传给 KLayout，而是从参数字典中省略，让 PCell 使用自身的运行时默认值。扫描器会为源码中没有约束的参数根据已解析默认值补充一组保守的布尔、整数或浮点候选值。点击 **Generate Test Points** 会读取右侧当前默认值生成一组测试点。可在 **View Test Points** 中查看，修改默认值后可重新生成。未设置的参数由 KLayout 使用库默认值，隐藏或只读参数不参与配置。
+激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。`sky130A` 的注册名称直接列在根节点下，名称后的括号显示源码文件名，悬停可查看完整路径。右侧保留 KLayout 声明的完整参数列表，隐藏和只读参数仅供查看。选择 PCell 后，右侧的 **Default** 和 **Range / Choices** 均可直接编辑；后者支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。因此，当静态扫描无法解析 PDK 源码中的动态默认值时，可以在生成测试点前手工填写正确的数值。未填写的未知默认值不会再以空字符串传给 KLayout，而是从参数字典中省略，让 PCell 使用自身的运行时默认值。扫描器会为源码中没有约束的参数根据已解析默认值补充一组保守的布尔、整数或浮点候选值。点击 **Generate Test Points** 会读取右侧当前默认值，生成一组测试点和对应的 GDS。**View Test Points** 中可以查看参数、版图缩略图和 **View Layout**。修改默认值后可重新生成。未设置的参数由 KLayout 使用库默认值，隐藏或只读参数不参与配置。
 
-**Verify** 会通过应用自身的 Python 解释器和 `klayout` Python 包实例化每一个测试点，使 PCell 可以使用应用环境中已安装的 NumPy 等二进制依赖；随后查找当前 PDK 中的第一个 `*.lydrc`（其次是 `*.drc`）规则文件并用 KLayout 执行 DRC。对于 GF180 这类由 `run_drc.py` 启动的宏，会直接执行其独立 DRC 规则文件，避免 KLayout 的嵌入式 Python 还需单独安装 `docopt`。程序会同时传入规则文件常见的 `topcell`、`cell_name` 和 `cell` 顶层单元参数。底部 **Output** 显示逐条 PASS/FAIL 及汇总；完成后右上角 **DRC Results** 按钮可查看所有参数和错误信息，点击 **Open Layout** 可在 KLayout 中检查对应的通过或未通过版图。若无法完成 DRC，结果会显示具体原因。
+**DRC** 检查已经生成的 GDS。Sky130A 使用 Magic，其他 PDK 仍使用 KLayout 规则文件。检查结果和 PDF 汇总可在 **DRC Results** 查看，底部 **Output** 会显示每组版图的生成路径及 DRC 结果。
 
 ## 生成 Sky130A NMOS
 
-启动应用并激活已导入的 `sky130A` 后，选择 `nfet`，依次点击 **Generate Test Points** 和 **Run Verify**。每次运行会在 `output/verification/run-*/` 保存 GDS、实际生效的参数 JSON，以及规则执行时生成的 DRC 报告。缺少 KLayout 命令行工具或规则文件时，仍会尝试生成 GDS，并说明 DRC 未运行。输出区会显示 GDS 的完整路径，DRC 结果中的 **View Layout** 在没有预览图时可以打开 GDS 或其所在目录。
+激活 `sky130A` 并选择 `nfet`。点击 **Generate Test Points** 后，GDS 和实际生效的参数 JSON 会保存到 `output/verification/run-*/`。确认版图后点击 **DRC**。请确保兼容该 PDK 的 Magic 已在 `PATH` 中。Magic 会在同一目录写出 `*_drc.txt` 和 `*_magic.log`。应用优先使用 PDK 的 `libs.tech/magic/sky130A.magicrc`，并根据导入位置设置 `PDK_ROOT`。如果没有原版 rcfile，则使用工程的 `config/sky130A.magicrc`。
 
 从工程根目录也可以单独生成 GDS：
 
@@ -40,6 +40,14 @@ python scripts/generate_sky130_nmos.py --pdk "$SKY130_KLAYOUT" --w 0.42 --l 0.15
 ```
 
 `SKY130_KLAYOUT` 通常指向 `sky130A/libs.tech/klayout`。脚本也接受 `sky130A` 根目录或其 `libs.tech/klayout/python` 子目录。在界面导入这三个目录时，应用会按 Sky130A 安装根目录保存 PDK。脚本和应用共用 Sky130A 的兼容处理，参数配置位于 `config/sky130_nmos.json`。请使用已安装兼容版本 `gdsfactory` 和 `kfactory` 的 Python 环境。命令同时写出 `output/nmos.json`，记录请求值和实例化后的实际参数。`--m` 只记录到 JSON。
+
+也可以检查命令行生成的 `output/nmos.gds`。设置 `PDK_ROOT` 为包含 `sky130A` 的目录后，在工程根目录运行：
+
+```bash
+magic -dnull -noconsole -rcfile "$PDK_ROOT/sky130A/libs.tech/magic/sky130A.magicrc" scripts/run_nmos_drc.tcl
+```
+
+脚本默认读取顶层单元 `NMOS_TOP`，将报告写到 `output/nmos_drc.txt`。
 
 ## 开发
 

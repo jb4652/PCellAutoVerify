@@ -12,10 +12,12 @@ from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget
 
 from core import PCell, VerificationResult
+from core.models import GeneratedLayout
+from gui.points_dialog import TestPointsDialog as PointsDialog
 from gui.results_dialog import PdfReportDialog, VerificationResultsDialog
 
 
-def test_failed_result_displays_layout_thumbnail_and_view_button(tmp_path: Path):
+def test_generated_point_displays_layout_thumbnail_and_view_button(tmp_path: Path):
     app = QApplication.instance() or QApplication([])
     layout = tmp_path / "failed.gds"
     layout.write_text("layout", encoding="utf-8")
@@ -23,21 +25,21 @@ def test_failed_result_displays_layout_thumbnail_and_view_button(tmp_path: Path)
     image = QImage(320, 200, QImage.Format.Format_RGB32)
     image.fill(QColor("#336699"))
     assert image.save(str(preview))
-    result = VerificationResult(
-        1, {"width": "2"}, False, "DRC found 1 violation(s)",
+    result = GeneratedLayout(
+        1, {"width": "2"}, "GDS generated",
         str(layout), str(preview),
     )
 
-    dialog = VerificationResultsDialog(PCell("Device", "device.py"), [result])
+    dialog = PointsDialog(PCell("Device", "device.py"), [result])
     table = dialog.findChild(QTableWidget)
 
-    assert table.columnCount() == 5
-    assert table.horizontalHeaderItem(3).text() == "Layout"
-    assert table.horizontalHeaderItem(4).text() == "View Layout"
-    thumbnail = table.cellWidget(0, 3)
+    assert table.columnCount() == 4
+    assert table.horizontalHeaderItem(1).text() == "Layout"
+    assert table.horizontalHeaderItem(2).text() == "View Layout"
+    thumbnail = table.cellWidget(0, 1)
     assert isinstance(thumbnail, QLabel)
     assert thumbnail.pixmap() is not None
-    button = table.cellWidget(0, 4)
+    button = table.cellWidget(0, 2)
     assert isinstance(button, QPushButton)
     assert button.isEnabled()
 
@@ -73,10 +75,10 @@ def test_layout_button_remains_enabled_without_png(tmp_path: Path):
     app = QApplication.instance() or QApplication([])
     layout = tmp_path / "nfet.gds"
     layout.touch()
-    result = VerificationResult(1, {}, False, "DRC unavailable", str(layout))
-    dialog = VerificationResultsDialog(PCell("nfet", "fet.py"), [result])
+    result = GeneratedLayout(1, {}, "GDS generated", str(layout))
+    dialog = PointsDialog(PCell("nfet", "fet.py"), [result])
     table = dialog.findChild(QTableWidget)
-    button = table.cellWidget(0, 4)
+    button = table.cellWidget(0, 2)
     assert button.isEnabled()
     assert button.toolTip() == str(layout)
     dialog.close()

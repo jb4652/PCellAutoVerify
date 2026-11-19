@@ -28,6 +28,7 @@ from core import (
     VerificationResult,
     inferred_range,
 )
+from core.models import GeneratedLayout
 from core.sky130_library import is_sky130a
 from core.test_points import default_test_point
 from database import PDKDatabase
@@ -48,7 +49,7 @@ class MainWindow(QMainWindow):
         self.database = database
         self.registry = PluginRegistry()
         self.current_cells: list[PCell] = []
-        self.test_points: dict[int, list[dict[str, str]]] = {}
+        self.test_points: dict[int, list[GeneratedLayout]] = {}
         self.verification_results: dict[int, list[VerificationResult]] = {}
         self.active_pdk_path = ""
         self.setWindowTitle("PCell Auto Verify")
@@ -93,7 +94,7 @@ class MainWindow(QMainWindow):
         self.view_points_action.triggered.connect(self.view_points)
         self.verify_action = QAction(
             self.style().standardIcon(self.style().StandardPixmap.SP_DialogApplyButton),
-            "Run Verify",
+            "DRC",
             self,
         )
         self.verify_action.triggered.connect(self.verify)
@@ -164,16 +165,16 @@ class MainWindow(QMainWindow):
         self.view_button.setEnabled(False)
         self.view_button.clicked.connect(self.view_points)
         header.addWidget(self.view_button)
-        self.verify_button = QPushButton("Verify")
+        self.verify_button = QPushButton("DRC")
         self.verify_button.setEnabled(False)
         self.verify_button.setToolTip(
-            "Run DRC and other checks for the generated test points"
+            "Run DRC on the generated GDS files"
         )
         self.verify_button.clicked.connect(self.verify)
         header.addWidget(self.verify_button)
         self.results_button = QPushButton("DRC Results")
         self.results_button.setEnabled(False)
-        self.results_button.setToolTip("View each result and open its generated layout")
+        self.results_button.setToolTip("View DRC results and the PDF summary")
         self.results_button.clicked.connect(self.view_results)
         header.addWidget(self.results_button)
         right_layout.addLayout(header)
@@ -293,7 +294,7 @@ class MainWindow(QMainWindow):
         self.parameters.setRowCount(0)
         self.generate_button.setEnabled(False)
         self.view_button.setEnabled(bool(self.test_points.get(row)))
-        self.verify_button.setEnabled(bool(self.test_points.get(row)))
+        self.verify_button.setEnabled(any(point.layout_path for point in self.test_points.get(row, [])))
         self.results_button.setEnabled(bool(self.verification_results.get(row)))
         if row < 0 or row >= len(self.current_cells):
             self.parameter_title.setText("Select a PCell to configure parameters")
@@ -340,19 +341,23 @@ class MainWindow(QMainWindow):
         row = self._selected_cell_index()
         if row < 0 or row >= len(self.current_cells):
             return
-        points = [default_test_point(self.current_cells[row])]
-        self.test_points[row] = points
+        cell = self.current_cells[row]
+        points = [default_test_point(cell)]
         self.verification_results.pop(row, None)
-        self.view_button.setEnabled(bool(points))
-        self.verify_button.setEnabled(bool(points))
+        try:
+            layouts = KLayoutVerifier(self.active_pdk_path).generate_layouts(cell, points)
+        except OSError as error:
+            layouts = [GeneratedLayout(1, points[0], f"GDS generation failed: {error}")]
+        self.test_points[row] = layouts
+        self.view_button.setEnabled(bool(layouts))
+        self.verify_button.setEnabled(any(point.layout_path for point in layouts))
         self.results_button.setEnabled(False)
         self._sync_actions()
+        for point in layouts:
+            message = f"GDS: {point.layout_path}" if point.layout_path else point.message
+            self.write_output(f"  #{point.index}: {message}")
         self.statusBar().showMessage(
-            f"Generated {len(points)} test point(s) for {self.current_cells[row].name}"
-        )
-        self.write_output(
-            f"Generated {len(points)} test point(s) for "
-            f"'{self.current_cells[row].name}'."
+            f"Generated {sum(bool(point.layout_path) for point in layouts)}/{len(layouts)} GDS layout(s)"
         )
 
     def view_points(self) -> None:
@@ -363,24 +368,31 @@ class MainWindow(QMainWindow):
         TestPointsDialog(self.current_cells[row], points, self).exec()
 
     def verify(self) -> None:
-        """Generate layouts and execute the PDK's KLayout DRC deck."""
+        """Run DRC against the layouts already generated for this PCell."""
         row = self._selected_cell_index()
         points = self.test_points.get(row, [])
-        if row < 0 or row >= len(self.current_cells) or not points:
+        if row < 0 or row >= len(self.current_cells):
+            return
+        first_layout = next((point.layout_path for point in points if point.layout_path), None)
+        if first_layout is None:
             return
         cell = self.current_cells[row]
         self.verify_button.setEnabled(False)
         self._sync_actions()
         self.write_output(
-            f"Running KLayout DRC for '{cell.name}' ({len(points)} point(s)) …"
+            f"Running DRC for '{cell.name}' ({len(points)} point(s)) …"
         )
-        self.verification_requested.emit(cell, points)
+        self.verification_requested.emit(cell, [point.parameters for point in points])
         try:
-            results = KLayoutVerifier(self.active_pdk_path).verify(cell, points)
+            results = KLayoutVerifier(
+                self.active_pdk_path, str(Path(first_layout).parent)
+            ).check_layouts(points)
         except OSError as error:
             results = [
-                VerificationResult(index, point, False, f"Unable to access verification files: {error}")
-                for index, point in enumerate(points, 1)
+                VerificationResult(
+                    point.index, point.parameters, False, f"Unable to access verification files: {error}"
+                )
+                for point in points
             ]
         self.verification_results[row] = results
         passed = sum(result.passed for result in results)
@@ -393,8 +405,6 @@ class MainWindow(QMainWindow):
                 f"  #{result.index}: "
                 f"{'PASS' if result.passed else 'FAIL'} — {result.message}"
             )
-            if result.layout_path:
-                self.write_output(f"       GDS: {result.layout_path}")
         self.statusBar().showMessage(f"DRC complete: {passed} passed, {failed} failed")
         self.results_button.setEnabled(bool(results))
         self.verify_button.setEnabled(True)
