@@ -21,10 +21,19 @@ class PDKDatabase:
             CREATE TABLE IF NOT EXISTS pcells (
                 id INTEGER PRIMARY KEY,
                 pdk_id INTEGER NOT NULL REFERENCES pdks(id) ON DELETE CASCADE,
-                name TEXT NOT NULL, source TEXT NOT NULL, parameters TEXT NOT NULL
+                name TEXT NOT NULL, source TEXT NOT NULL, parameters TEXT NOT NULL,
+                library_path TEXT NOT NULL DEFAULT ''
             );
             """
         )
+
+        with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            columns = self.connection.execute("PRAGMA table_info(pcells)")
+            if not any(column[1] == "library_path" for column in columns):
+                self.connection.execute(
+                    "ALTER TABLE pcells ADD COLUMN library_path TEXT NOT NULL DEFAULT ''"
+                )
 
     def close(self) -> None:
         self.connection.close()
@@ -37,13 +46,13 @@ class PDKDatabase:
         for row in rows:
             pdk = PDK(row[0], row[1], row[2], row[3], bool(row[4]))
             cell_rows = self.connection.execute(
-                "SELECT name,source,parameters FROM pcells "
+                "SELECT name,source,parameters,library_path FROM pcells "
                 "WHERE pdk_id=? ORDER BY name",
                 (pdk.id,),
             )
             for cell in cell_rows:
                 parameters = [Parameter(**item) for item in json.loads(cell[2])]
-                pdk.pcells.append(PCell(cell[0], cell[1], parameters))
+                pdk.pcells.append(PCell(cell[0], cell[1], parameters, library_path=cell[3]))
             result.append(pdk)
         return result
 
@@ -74,8 +83,9 @@ class PDKDatabase:
                     ]
                 )
                 self.connection.execute(
-                    "INSERT INTO pcells(pdk_id,name,source,parameters) VALUES(?,?,?,?)",
-                    (pdk_id, cell.name, cell.source, payload),
+                    "INSERT INTO pcells(pdk_id,name,source,parameters,library_path) "
+                    "VALUES(?,?,?,?,?)",
+                    (pdk_id, cell.name, cell.source, payload, cell.library_path),
                 )
         return pdk_id
 

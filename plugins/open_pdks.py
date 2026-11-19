@@ -1,10 +1,15 @@
-"""open-pdks/KLayout 风格 Python PCell 的静态扫描插件。"""
+"""Discover KLayout PCells in open PDKs."""
 
 import ast
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from core import PCell, PDK, Parameter
+from core import sky130_library
 
 from .base import PDKPlugin
 
@@ -141,7 +146,45 @@ class OpenPDKsPlugin(PDKPlugin):
                         )
         return parameters
 
+    def _scan_sky130a(self, root: Path) -> list[PCell]:
+        python_dir = root.resolve() / sky130_library.SKY130_PYTHON_PATH
+        if not (python_dir / "cells" / "__init__.py").is_file():
+            raise ValueError(f"找不到 Sky130A KLayout PCell 库：{python_dir / 'cells'}")
+        with TemporaryDirectory(prefix="sky130-pcells-") as directory:
+            output = Path(directory) / "pcells.json"
+            try:
+                result = subprocess.run(
+                    [sys.executable, sky130_library.__file__, str(root.resolve()), str(output)],
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise ValueError("加载 Sky130A KLayout PCell 库超时。") from error
+            if result.returncode or not output.is_file():
+                details = (result.stderr or result.stdout).strip()
+                raise ValueError(
+                    "无法加载 Sky130A KLayout PCell 库。请确认当前 Python 环境"
+                    f"已安装该 PDK 所需的依赖（如 gdsfactory）。\n{details[-1500:]}"
+                )
+            cells = json.loads(output.read_text(encoding="utf-8"))
+        return [
+            PCell(
+                cell["name"],
+                cell["source"],
+                [Parameter(**param) for param in cell["parameters"]],
+                library_path=str(sky130_library.SKY130_PYTHON_PATH),
+            )
+            for cell in cells
+        ]
+
     def scan(self, root: Path) -> PDK:
+        resolved = root.resolve()
+        for name in (root.name, resolved.name):
+            if sky130_library.is_sky130a(name):
+                cells = self._scan_sky130a(resolved)
+                return PDK(None, name, str(resolved), self.name, pcells=cells)
         cells: list[PCell] = []
         for path in root.rglob("*.py"):
             if not any(part.startswith(".") for part in path.relative_to(root).parts):
@@ -165,4 +208,4 @@ class OpenPDKsPlugin(PDKPlugin):
                     ],
                 ),
             )
-        return PDK(None, root.name, str(root.resolve()), self.name, pcells=cells)
+        return PDK(None, root.name, str(resolved), self.name, pcells=cells)

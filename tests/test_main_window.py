@@ -10,12 +10,21 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QToolBar
 
-from core import PCell, PDK, Parameter
+from core import KLayoutVerifier, PCell, PDK, Parameter, VerificationResult
 from database import PDKDatabase
 from gui import MainWindow
+from plugins import PluginRegistry
 
 
-def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path):
+def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        KLayoutVerifier,
+        "verify",
+        lambda self, cell, points: [
+            VerificationResult(index, point, True, "DRC passed")
+            for index, point in enumerate(points, 1)
+        ],
+    )
     app = QApplication.instance() or QApplication([])
     database = PDKDatabase(tmp_path / "gui.sqlite")
     pdk_id = database.import_pdk(
@@ -78,8 +87,82 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path):
 
     assert requested[0][0].name == "NfetPCell"
     assert len(requested[0][1]) == 2
-    assert "Verification requested" in window.output.toPlainText()
+    assert "2 passed, 0 failed" in window.output.toPlainText()
 
     window.close()
     database.close()
     app.processEvents()
+
+
+def test_sky130a_reimport_shows_registered_names_and_sources(tmp_path: Path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    pdk_root = tmp_path / "PDK installs" / "sky130A"
+    package = pdk_root / "libs.tech/klayout/python/cells"
+    package.mkdir(parents=True)
+    (package / "devices.py").write_text(
+        """
+import klayout.db as kdb
+
+class UnregisteredPCell(kdb.PCellDeclarationHelper):
+    pass
+
+class Device(kdb.PCellDeclarationHelper):
+    def __init__(self):
+        super().__init__()
+        width = self.param("width", self.TypeDouble, "Width", default=0.6)
+        width.add_choice("Narrow", 0.2)
+        width.add_choice("Wide", 0.6)
+""",
+        encoding="utf-8",
+    )
+    (package / "__init__.py").write_text(
+        """
+import klayout.db as kdb
+from .devices import Device
+
+class sky130(kdb.Library):
+    def __init__(self):
+        super().__init__()
+        for index in reversed(range(18)):
+            self.layout().register_pcell(f"device_{index:02}", Device())
+        self.register("sky130")
+""",
+        encoding="utf-8",
+    )
+    path = str(pdk_root)
+    database = PDKDatabase(tmp_path / "gui.sqlite")
+    legacy = PDK(
+        None, "sky130A", path, "open-pdks",
+        pcells=[PCell("UnregisteredPCell", "libs.tech/klayout/python/cells/__init__.py")],
+    )
+    pdk_id = database.import_pdk(legacy)
+    database.activate(pdk_id)
+
+    alias = tmp_path / "installation alias"
+    alias.symlink_to(pdk_root, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+    pdk = PluginRegistry().import_path(Path(alias.name))
+    assert pdk.path == str(pdk_root)
+    assert database.import_pdk(pdk) == pdk_id
+    assert len(database.list_pdks()) == 1
+    imported_cell = database.list_pdks()[0].pcells[0]
+    assert imported_cell.library_path == str(Path("libs.tech/klayout/python"))
+    assert imported_cell.source == str(Path("libs.tech/klayout/python/cells/devices.py"))
+    window = MainWindow(database)
+    try:
+        root = window.cells.topLevelItem(0)
+        assert root.text(0) == "sky130A"
+        assert root.isExpanded()
+        assert [root.child(i).text(0) for i in range(root.childCount())] == [
+            f"device_{index:02} (sky130A/libs.tech/klayout/python/cells/devices.py)"
+            for index in range(18)
+        ]
+        assert root.child(0).toolTip(0) == str(package / "devices.py")
+        window.cells.setCurrentItem(root.child(0))
+        assert window.parameters.item(0, 0).text() == "width"
+        assert window.parameters.item(0, 1).text() == "0.6"
+        assert window.parameters.item(0, 2).text() == "choices=[0.2, 0.6]"
+    finally:
+        window.close()
+        database.close()
+        app.processEvents()

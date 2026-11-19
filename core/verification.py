@@ -41,26 +41,34 @@ parameters = os.environ["PCELL_VERIFY_PARAMETERS"]
 output = os.environ["PCELL_VERIFY_OUTPUT"]
 preview = os.environ.get("PCELL_VERIFY_PREVIEW", "")
 source_path = os.path.abspath(source)
-package_parts = []
-package_dir = os.path.dirname(source_path)
-while os.path.isfile(os.path.join(package_dir, "__init__.py")):
-    package_parts.insert(0, os.path.basename(package_dir))
-    package_dir = os.path.dirname(package_dir)
-if package_parts:
-    sys.path.insert(0, package_dir)
-    source_module = os.path.splitext(os.path.basename(source_path))[0]
-    module_name = ".".join(package_parts + ([] if source_module == "__init__" else [source_module]))
-    namespace = vars(importlib.import_module(module_name))
-else:
-    namespace = runpy.run_path(source_path)
-cls = namespace.get(class_name)
-if cls is None:
-    raise RuntimeError("PCell class not found: " + class_name)
 layout = pya.Layout()
-declaration = cls()
-layout.register_pcell(class_name, declaration)
 values = json.loads(parameters)
-cell = layout.create_cell(class_name, values)
+library_path = os.environ.get("PCELL_VERIFY_LIBRARY")
+if library_path:
+    from pathlib import Path
+    from core.sky130_library import load_library
+
+    library = load_library(Path(library_path))
+    cell = layout.create_cell(class_name, library.name(), values)
+else:
+    package_parts = []
+    package_dir = os.path.dirname(source_path)
+    while os.path.isfile(os.path.join(package_dir, "__init__.py")):
+        package_parts.insert(0, os.path.basename(package_dir))
+        package_dir = os.path.dirname(package_dir)
+    if package_parts:
+        sys.path.insert(0, package_dir)
+        source_module = os.path.splitext(os.path.basename(source_path))[0]
+        module_name = ".".join(package_parts + ([] if source_module == "__init__" else [source_module]))
+        namespace = vars(importlib.import_module(module_name))
+    else:
+        namespace = runpy.run_path(source_path)
+    cls = namespace.get(class_name)
+    if cls is None:
+        raise RuntimeError("PCell class not found: " + class_name)
+    declaration = cls()
+    layout.register_pcell(class_name, declaration)
+    cell = layout.create_cell(class_name, values)
 if cell is None:
     raise RuntimeError("KLayout could not instantiate the PCell")
 # KLayout deliberately catches exceptions raised by ``produce_impl``.  Rather
@@ -189,6 +197,10 @@ class KLayoutVerifier:
         if not executable:
             return [VerificationResult(i + 1, point, False, "KLayout executable not found") for i, point in enumerate(points)]
         source = self.pdk_root / pcell.source
+        library_path = self.pdk_root / pcell.library_path if pcell.library_path else None
+        # Earlier Sky130A imports stored the library directory as the source.
+        if library_path is None and (source / "cells" / "__init__.py").is_file():
+            library_path = source
         deck = self._deck()
         self.output_root.mkdir(parents=True, exist_ok=True)
         runner = self.output_root / "instantiate.py"
@@ -200,6 +212,7 @@ class KLayoutVerifier:
             environment = self._environment()
             environment.update({
                 "PCELL_VERIFY_SOURCE": str(source),
+                "PCELL_VERIFY_LIBRARY": str(library_path.resolve()) if library_path else "",
                 "PCELL_VERIFY_CLASS": pcell.name,
                 "PCELL_VERIFY_PARAMETERS": json.dumps(self._values(point)),
                 "PCELL_VERIFY_OUTPUT": str(layout),

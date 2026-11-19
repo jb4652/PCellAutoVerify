@@ -27,6 +27,7 @@ class PCell:
     name: str
     source: str
     parameters: list[Parameter] = field(default_factory=list)
+    library_path: str = ""
 
 
 @dataclass(slots=True)

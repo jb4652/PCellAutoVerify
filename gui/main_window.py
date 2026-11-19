@@ -1,6 +1,6 @@
 """应用主窗口。"""
 
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
@@ -29,6 +29,7 @@ from core import (
     generate_test_points,
     inferred_range,
 )
+from core.sky130_library import is_sky130a
 from database import PDKDatabase
 from plugins import PluginRegistry
 
@@ -231,6 +232,12 @@ class MainWindow(QMainWindow):
         active = next(
             (pdk for pdk in self.database.list_pdks() if pdk.active), None
         )
+        flat = active is not None and active.plugin == "open-pdks" and is_sky130a(active.name)
+        header = self.cells.header()
+        header.setStretchLastSection(not flat)
+        header.setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents if flat else QHeaderView.ResizeMode.Interactive
+        )
         if active:
             self.active_pdk_path = active.path
             self.current_cells = active.pcells
@@ -240,7 +247,7 @@ class MainWindow(QMainWindow):
             branches: dict[tuple[str, ...], QTreeWidgetItem] = {(): root}
             for index, cell in enumerate(active.pcells):
                 parent = root
-                path_parts = tuple(
+                path_parts = () if flat else tuple(
                     part
                     for part in PurePath(cell.source.replace("\\", "/")).parts
                     if part not in ("/", ".")
@@ -250,9 +257,16 @@ class MainWindow(QMainWindow):
                     if key not in branches:
                         branches[key] = QTreeWidgetItem(parent, [part])
                     parent = branches[key]
-                cell_item = QTreeWidgetItem(parent, [cell.name])
+                label = cell.name
+                tooltip = cell.source
+                if flat and cell.source and Path(cell.source).suffix == ".py":
+                    source = Path(cell.source)
+                    display_path = source if source.is_absolute() else Path(active.name) / source
+                    label = f"{cell.name} ({display_path.as_posix()})"
+                    tooltip = str(Path(active.path) / source)
+                cell_item = QTreeWidgetItem(parent, [label])
                 cell_item.setData(0, Qt.ItemDataRole.UserRole, index)
-                cell_item.setToolTip(0, cell.source)
+                cell_item.setToolTip(0, tooltip)
             self.cells.expandAll()
             self.statusBar().showMessage(
                 f"Active PDK: {active.name} · {len(active.pcells)} PCells"
