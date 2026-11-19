@@ -156,15 +156,58 @@ class ExtractionResultsDialog(QDialog):
     def __init__(self, title: str, results: list[ExtractionResult], parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"{title} Results")
-        self.resize(850, 560)
+        self.resize(1000, 560)
         layout = QVBoxLayout(self)
-        report = QPlainTextEdit()
-        report.setReadOnly(True)
-        report.setPlainText("\n\n".join(
-            f"Test point {result.index} · {result.status}\n{result.details}".rstrip()
-            for result in results
-        ))
-        layout.addWidget(report)
+        is_rcx = title == "RCX"
+        columns = ["#", "Result"]
+        if is_rcx:
+            columns.extend(["MOS model", "MOS instances", "Resistors", "Capacitors"])
+        columns.extend(["Summary", "Details"])
+        table = QTableWidget(len(results), len(columns))
+        table.setHorizontalHeaderLabels(columns)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(len(columns) - 2, QHeaderView.ResizeMode.Stretch)
+
+        for row, result in enumerate(results):
+            table.setItem(row, 0, QTableWidgetItem(str(result.index)))
+            status = QTableWidgetItem(result.status)
+            color = "#16803c" if result.status in ("PASS", "PASS_BASIC") else "#c62828"
+            status.setForeground(QColor(color))
+            table.setItem(row, 1, status)
+            if is_rcx:
+                counts = result.rcx
+                values = (
+                    (counts.model, counts.mos, counts.resistors, counts.capacitors)
+                    if counts else ("—", "—", "—", "—")
+                )
+                for column, value in enumerate(values, 2):
+                    table.setItem(row, column, QTableWidgetItem(str(value)))
+            summary = QTableWidgetItem(result.summary)
+            summary.setToolTip(result.summary)
+            table.setItem(row, len(columns) - 2, summary)
+            button = QPushButton("View Details")
+            button.clicked.connect(
+                lambda checked=False, result=result: self._view_details(title, result)
+            )
+            table.setCellWidget(row, len(columns) - 1, button)
+
+        layout.addWidget(table)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _view_details(self, title: str, result: ExtractionResult) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"{title} Details — Test Point {result.index}")
+        dialog.resize(850, 560)
+        layout = QVBoxLayout(dialog)
+        report = QPlainTextEdit()
+        report.setReadOnly(True)
+        report.setPlainText(result.details)
+        layout.addWidget(report)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
