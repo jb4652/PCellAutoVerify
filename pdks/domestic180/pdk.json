@@ -1,0 +1,12 @@
+{
+  "format": "pcell-auto-verify-domestic180-v1",
+  "name": "domestic180",
+  "grid_um": 0.005,
+  "min_gate_um": 0.18,
+  "min_active_width_um": 0.42,
+  "min_metal_width_um": 0.20,
+  "min_metal_spacing_um": 0.20,
+  "min_metal_area_um2": 0.08,
+  "metal_ohms_per_square": 0.10,
+  "metal_ff_per_um2": 0.05
+}

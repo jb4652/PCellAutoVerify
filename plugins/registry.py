@@ -5,12 +5,13 @@ from pathlib import Path
 from core import PDK
 
 from .base import PDKPlugin
+from .domestic180 import Domestic180Plugin
 from .open_pdks import OpenPDKsPlugin
 
 
 class PluginRegistry:
     def __init__(self, plugins: list[PDKPlugin] | None = None):
-        self.plugins = plugins if plugins is not None else [OpenPDKsPlugin()]
+        self.plugins = plugins if plugins is not None else [Domestic180Plugin(), OpenPDKsPlugin()]
 
     def import_path(self, path: Path) -> PDK:
         selected = path.expanduser().absolute()

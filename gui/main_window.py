@@ -31,6 +31,7 @@ from core import (
     VerificationResult,
     inferred_range,
 )
+from core.domestic180_verification import run_extraction as run_domestic180_extraction
 from core.models import GeneratedLayout
 from core.nmos_extraction import ExtractionResult, run_mos_extraction
 from core.sky130_inverter import INVERTER_NAME, SKY130_REGRESSION_CELLS, inverter_pcell
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self.callback_editable: dict[int, dict[str, bool]] = {}
         self.active_pdk_path = ""
         self.active_sky130a = False
+        self.active_domestic180 = False
         self.setWindowTitle("PCell Auto Verify")
         self.resize(1100, 700)
 
@@ -203,7 +205,7 @@ class MainWindow(QMainWindow):
         for mode in ("lvs", "rcx"):
             run_button = QPushButton(mode.upper())
             run_button.setObjectName(f"{mode}Button")
-            run_button.setToolTip("Run on generated Sky130A transistor or inverter GDS")
+            run_button.setToolTip("Run on generated GDS from a supported PDK")
             run_button.clicked.connect(lambda checked=False, mode=mode: self.run_extraction(mode))
             results_button = QPushButton(f"{mode.upper()} Results")
             results_button.setObjectName(f"{mode}ResultsButton")
@@ -249,8 +251,10 @@ class MainWindow(QMainWindow):
         self.results_action.setEnabled(self.results_button.isEnabled())
         row = self._selected_cell_index()
         can_extract = (
-            self.active_sky130a and 0 <= row < len(self.current_cells)
-            and self.current_cells[row].name in (*MOS_PCELL_NAMES, INVERTER_NAME)
+            0 <= row < len(self.current_cells)
+            and (self.active_domestic180 or (
+                self.active_sky130a and self.current_cells[row].name in (*MOS_PCELL_NAMES, INVERTER_NAME)
+            ))
             and any(point.layout_path for point in self.test_points.get(row, []))
         )
         for mode, (run_button, results_button) in self.extraction_buttons.items():
@@ -272,6 +276,7 @@ class MainWindow(QMainWindow):
         self.extraction_results.clear()
         self.active_pdk_path = ""
         self.active_sky130a = False
+        self.active_domestic180 = False
         self.generate_button.setEnabled(False)
         self.manual_generate_button.setEnabled(False)
         self.view_button.setEnabled(False)
@@ -291,6 +296,7 @@ class MainWindow(QMainWindow):
         if active:
             self.active_pdk_path = active.path
             self.active_sky130a = is_sky130a(active.name)
+            self.active_domestic180 = active.plugin == "domestic180"
             self.current_cells = list(active.pcells)
             if flat and set(MOS_PCELL_NAMES).issubset(cell.name for cell in active.pcells):
                 self.current_cells.append(inverter_pcell())
@@ -429,6 +435,8 @@ class MainWindow(QMainWindow):
         points = [defaults]
         if self.active_sky130a and cell.name in SKY130_REGRESSION_CELLS:
             points.append({**defaults, "metal1_test_width": "0.035"})
+        elif self.active_domestic180:
+            points.append({**defaults, "metal_width": "0.12"})
         self._generate_layouts(row, points, "automatic")
 
     def generate_manual_point(self) -> None:
@@ -533,8 +541,9 @@ class MainWindow(QMainWindow):
         run_button.setEnabled(False)
         label = mode.upper()
         self.write_output(f"Running {label} for '{self.current_cells[row].name}' …")
+        extractor = run_domestic180_extraction if self.active_domestic180 else run_mos_extraction
         results = [
-            run_mos_extraction(Path(self.active_pdk_path).resolve(), point, mode)
+            extractor(Path(self.active_pdk_path).resolve(), point, mode)
             for point in self.test_points[row]
         ]
         self.extraction_results[row, mode] = results

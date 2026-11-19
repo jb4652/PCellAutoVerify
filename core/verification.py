@@ -13,6 +13,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .domestic180_verification import check_drc as check_domestic180_drc, is_domestic180
 from .magic_drc import check_sky130_layout
 from .models import GeneratedLayout, PCell, VerificationResult
 from .sky130_nmos import MOS_PCELL_NAMES
@@ -212,7 +213,7 @@ class KLayoutVerifier:
         the host interpreter's standard-library paths must be left out.
         """
         environment = os.environ.copy()
-        paths = [path for path in sys.path if path]
+        paths = [str(Path(__file__).resolve().parents[1]), *[path for path in sys.path if path]]
         paths.extend(
             path
             for path in environment.get("PYTHONPATH", "").split(os.pathsep)
@@ -354,11 +355,12 @@ class KLayoutVerifier:
 
     def check_layouts(self, layouts: list[GeneratedLayout]) -> list[VerificationResult]:
         """Check the existing artifacts without invoking the PCell generator."""
+        use_domestic180 = is_domestic180(self.pdk_root)
         use_magic = is_sky130a(self.pdk_root.name) or (
             self.pdk_root / "libs.tech/magic/sky130A.tech"
         ).is_file()
-        deck = None if use_magic else self._deck()
-        executable = None if use_magic else shutil.which("klayout")
+        deck = None if use_magic or use_domestic180 else self._deck()
+        executable = None if use_magic or use_domestic180 else shutil.which("klayout")
         results = []
         for generated in layouts:
             passed = False
@@ -367,6 +369,8 @@ class KLayoutVerifier:
                 message = generated.message
             elif not layout.is_file():
                 message = f"GDS file not found: {layout}"
+            elif use_domestic180:
+                passed, message = check_domestic180_drc(self.pdk_root, layout)
             elif use_magic:
                 passed, message = check_sky130_layout(self.pdk_root, layout)
             elif not executable:

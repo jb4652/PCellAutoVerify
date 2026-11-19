@@ -80,6 +80,10 @@ Sky130A 的 `nfet`、`pfet` 和 `cmos_inverter` 各生成两个测试点。第�
 
 在右侧修改 **Default** 后，应用调用 PCell 的参数回调和校正逻辑。回调给出提示或系统修正了参数时，界面会弹出 **PCell Callback**，并显示生效值。例如 Sky130A `nfet` 的 `l=0.10 µm` 会校正为 `0.15 µm`。点击 **Manual Test Points Generation** 会以当前生效值生成并追加一个测试点。手动点在 **View Test Points** 中标为 **Manual**，重新生成自动用例时仍会保留。
 
+## 工程内置的 domestic180 PDK
+
+在 **PDK Manager → Import PDK...** 选择 `pdks/domestic180` 并激活 **domestic180**。它包含 180 nm 的 `nmos`、`pmos` 和四端口 `inverter`，支持自动和手动生成版图、GDS 预览及 DRC、LVS 和 RCX。规则、层定义和寄生估算说明见 [domestic180 文档](pdks/domestic180/README.md)。
+
 ## 开发
 
 ```bash
