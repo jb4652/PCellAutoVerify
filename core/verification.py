@@ -51,6 +51,7 @@ preview = os.environ.get("PCELL_VERIFY_PREVIEW", "")
 source_path = os.path.abspath(source)
 layout = pya.Layout()
 values = json.loads(parameters)
+metal1_test_width = values.pop("metal1_test_width", None)
 library_path = os.environ.get("PCELL_VERIFY_LIBRARY")
 metadata = None
 if library_path:
@@ -106,6 +107,19 @@ if error_messages:
 top = cell if getattr(cell, "name", "") == "VERIFY_TOP" else layout.create_cell("VERIFY_TOP")
 if top != cell:
     top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
+if metal1_test_width is not None:
+    from core.sky130_inverter import SKY130_REGRESSION_CELLS
+
+    if not library_path or class_name not in SKY130_REGRESSION_CELLS:
+        raise ValueError("The Metal1 DRC test is only defined for the Sky130A regression cells")
+    if metal1_test_width != 0.035:
+        raise ValueError("The Metal1 DRC test width must be 0.035 µm")
+    # Isolate the shape from the electrical circuit and keep it on the 5 nm grid.
+    x = ((top.bbox().right + 4) // 5) * 5 + 2000
+    width = round(metal1_test_width / layout.dbu)
+    height = round(0.5 / layout.dbu)
+    top.shapes(layout.layer(68, 20)).insert(pya.Box(x, 0, x + width, height))
+    metadata["metal1_test_width"] = metal1_test_width
 layout.write(output)
 if metadata is not None:
     write_metadata(Path(output), metadata)

@@ -5,10 +5,11 @@ from pathlib import Path
 
 from .models import PCell, Parameter
 from .sky130_library import SKY130_PYTHON_PATH
-from .sky130_nmos import instantiate_library_mos, load_mos_library
+from .sky130_nmos import MOS_PCELL_NAMES, instantiate_library_mos, load_mos_library
 
 
 INVERTER_NAME = "cmos_inverter"
+SKY130_REGRESSION_CELLS = (*MOS_PCELL_NAMES, INVERTER_NAME)
 INVERTER_PORTS = ("A", "Y", "VDD", "VSS")
 INVERTER_MODELS = ("sky130_fd_pr__nfet_01v8", "sky130_fd_pr__pfet_01v8")
 _DEFAULTS = {"wn": 0.42, "ln": 0.15, "wp": 0.42, "lp": 0.15}

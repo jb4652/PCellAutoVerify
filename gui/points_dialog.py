@@ -31,9 +31,11 @@ class TestPointsDialog(QDialog):
         self.resize(1000, 480)
 
         layout = QVBoxLayout(self)
-        table = QTableWidget(len(points), len(pcell.parameters) + 4)
+        has_negative_case = any("metal1_test_width" in point.parameters for point in points)
+        test_columns = ["Expected DRC", "Metal1 test width (µm)"] if has_negative_case else []
+        table = QTableWidget(len(points), len(pcell.parameters) + 4 + len(test_columns))
         table.setHorizontalHeaderLabels(
-            ["Point", "Layout", "View Layout", "Generation", *[p.name for p in pcell.parameters]]
+            ["Point", "Layout", "View Layout", "Generation", *test_columns, *[p.name for p in pcell.parameters]]
         )
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -44,7 +46,11 @@ class TestPointsDialog(QDialog):
             table.setItem(row, 3, status)
             if point.layout_path:
                 self._add_layout(table, row, point)
-            for column, parameter in enumerate(pcell.parameters, 4):
+            if has_negative_case:
+                width = point.parameters.get("metal1_test_width")
+                table.setItem(row, 4, QTableWidgetItem("FAIL" if width else "PASS"))
+                table.setItem(row, 5, QTableWidgetItem(width or "—"))
+            for column, parameter in enumerate(pcell.parameters, 4 + len(test_columns)):
                 table.setItem(
                     row, column, QTableWidgetItem(point.parameters.get(parameter.name, parameter.default))
                 )

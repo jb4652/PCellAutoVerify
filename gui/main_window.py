@@ -30,7 +30,7 @@ from core import (
 )
 from core.models import GeneratedLayout
 from core.nmos_extraction import ExtractionResult, run_mos_extraction
-from core.sky130_inverter import INVERTER_NAME, inverter_pcell
+from core.sky130_inverter import INVERTER_NAME, SKY130_REGRESSION_CELLS, inverter_pcell
 from core.sky130_library import is_sky130a
 from core.sky130_nmos import MOS_PCELL_NAMES
 from core.test_points import default_test_point
@@ -380,14 +380,20 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self.current_cells):
             return
         cell = self.current_cells[row]
-        points = [default_test_point(cell)]
+        defaults = default_test_point(cell)
+        points = [defaults]
+        if self.active_sky130a and cell.name in SKY130_REGRESSION_CELLS:
+            points.append({**defaults, "metal1_test_width": "0.035"})
         self.verification_results.pop(row, None)
         for mode in self.extraction_buttons:
             self.extraction_results.pop((row, mode), None)
         try:
             layouts = KLayoutVerifier(self.active_pdk_path).generate_layouts(cell, points)
         except OSError as error:
-            layouts = [GeneratedLayout(1, points[0], f"GDS generation failed: {error}")]
+            layouts = [
+                GeneratedLayout(index, point, f"GDS generation failed: {error}")
+                for index, point in enumerate(points, 1)
+            ]
         self.test_points[row] = layouts
         self.view_button.setEnabled(bool(layouts))
         self.verify_button.setEnabled(any(point.layout_path for point in layouts))
