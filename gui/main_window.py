@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -33,11 +34,12 @@ from core import (
 )
 from core.domestic180_verification import run_extraction as run_domestic180_extraction
 from core.models import GeneratedLayout
+from core.process_console import capture_process_console
 from core.nmos_extraction import ExtractionResult, run_mos_extraction
-from core.sky130_inverter import INVERTER_NAME, SKY130_REGRESSION_CELLS, inverter_pcell
+from core.sky130_inverter import INVERTER_NAME, inverter_pcell
 from core.sky130_library import is_sky130a
 from core.sky130_nmos import MOS_PCELL_NAMES
-from core.test_points import default_test_point
+from core.test_points import automatic_test_points, default_test_point
 from database import PDKDatabase
 from plugins import PluginRegistry
 
@@ -227,18 +229,22 @@ class MainWindow(QMainWindow):
         splitter.setSizes([350, 750])
         content_splitter.addWidget(splitter)
 
-        output_panel = QWidget()
-        output_layout = QVBoxLayout(output_panel)
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.addWidget(QLabel("Output"))
+        output_tabs = QTabWidget()
+        output_tabs.setObjectName("outputTabs")
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
-        self.output.setPlaceholderText(
-            "PCell generation and verification messages will appear here."
-        )
+        self.output.setPlaceholderText("PCell generation and verification messages will appear here.")
         self.output.document().setMaximumBlockCount(2000)
-        output_layout.addWidget(self.output)
-        content_splitter.addWidget(output_panel)
+        output_tabs.addTab(self.output, "Output")
+
+        self.console = QPlainTextEdit()
+        self.console.setObjectName("processConsole")
+        self.console.setReadOnly(True)
+        self.console.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.console.setPlaceholderText("External commands and their terminal output will appear here.")
+        self.console.document().setMaximumBlockCount(20000)
+        output_tabs.addTab(self.console, "Console")
+        content_splitter.addWidget(output_tabs)
         content_splitter.setSizes([520, 180])
         self.setCentralWidget(content_splitter)
         self.reload()
@@ -264,7 +270,8 @@ class MainWindow(QMainWindow):
     def open_manager(self) -> None:
         dialog = PDKManagerDialog(self.database, self.registry, self)
         dialog.changed.connect(self.reload)
-        dialog.exec()
+        with capture_process_console(self.write_console):
+            dialog.exec()
 
     def reload(self) -> None:
         self.cells.clear()
@@ -406,9 +413,10 @@ class MainWindow(QMainWindow):
         else:
             proposed.pop(parameter.name, None)
         try:
-            result = KLayoutVerifier.evaluate_parameter_edit(
-                self.active_pdk_path, cell, parameter.name, proposed,
-            )
+            with capture_process_console(self.write_console):
+                result = KLayoutVerifier.evaluate_parameter_edit(
+                    self.active_pdk_path, cell, parameter.name, proposed,
+                )
         except (OSError, ValueError, TimeoutExpired) as error:
             self.show_parameters(None, None)
             QMessageBox.warning(self, "PCell Callback", str(error))
@@ -435,12 +443,9 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self.current_cells):
             return
         cell = self.current_cells[row]
-        defaults = default_test_point(cell)
-        points = [defaults]
-        if self.active_sky130a and cell.name in SKY130_REGRESSION_CELLS:
-            points.append({**defaults, "metal1_test_width": "0.035"})
-        elif self.active_domestic180:
-            points.append({**defaults, "metal_width": "0.12"})
+        points = automatic_test_points(
+            cell, is_sky130a=self.active_sky130a, is_domestic180=self.active_domestic180,
+        )
         self._generate_layouts(row, points, "automatic")
 
     def generate_manual_point(self) -> None:
@@ -454,7 +459,8 @@ class MainWindow(QMainWindow):
         for mode in self.extraction_buttons:
             self.extraction_results.pop((row, mode), None)
         try:
-            layouts = KLayoutVerifier(self.active_pdk_path).generate_layouts(cell, points)
+            with capture_process_console(self.write_console):
+                layouts = KLayoutVerifier(self.active_pdk_path).generate_layouts(cell, points)
         except OSError as error:
             layouts = [
                 GeneratedLayout(index, point, f"GDS generation failed: {error}")
@@ -486,7 +492,7 @@ class MainWindow(QMainWindow):
         points = self.test_points.get(row, [])
         if row < 0 or row >= len(self.current_cells) or not points:
             return
-        TestPointsDialog(self.current_cells[row], points, self).exec()
+        TestPointsDialog(self.current_cells[row], points, self, write_console=self.write_console).exec()
 
     def verify(self) -> None:
         """Run DRC against the layouts already generated for this PCell."""
@@ -505,9 +511,10 @@ class MainWindow(QMainWindow):
         )
         self.verification_requested.emit(cell, [point.parameters for point in points])
         try:
-            results = KLayoutVerifier(
-                self.active_pdk_path, str(Path(first_layout).parent)
-            ).check_layouts(points)
+            with capture_process_console(self.write_console):
+                results = KLayoutVerifier(
+                    self.active_pdk_path, str(Path(first_layout).parent)
+                ).check_layouts(points)
         except OSError as error:
             results = [
                 VerificationResult(
@@ -546,10 +553,11 @@ class MainWindow(QMainWindow):
         label = mode.upper()
         self.write_output(f"Running {label} for '{self.current_cells[row].name}' …")
         extractor = run_domestic180_extraction if self.active_domestic180 else run_mos_extraction
-        results = [
-            extractor(Path(self.active_pdk_path).resolve(), point, mode)
-            for point in self.test_points[row]
-        ]
+        with capture_process_console(self.write_console):
+            results = [
+                extractor(Path(self.active_pdk_path).resolve(), point, mode)
+                for point in self.test_points[row]
+            ]
         self.extraction_results[row, mode] = results
         for result in results:
             self.write_output(f"  #{result.index}: {label} {result.status}")
@@ -564,3 +572,6 @@ class MainWindow(QMainWindow):
     def write_output(self, message: str) -> None:
         """将生成或验证消息追加到主窗口输出区。"""
         self.output.appendPlainText(message)
+
+    def write_console(self, message: str) -> None:
+        self.console.appendPlainText(message)

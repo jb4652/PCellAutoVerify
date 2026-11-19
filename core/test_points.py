@@ -99,6 +99,19 @@ def default_test_point(pcell: PCell) -> dict[str, str]:
     }
 
 
+def automatic_test_points(
+    pcell: PCell, *, is_sky130a: bool = False, is_domestic180: bool = False,
+) -> list[dict[str, str]]:
+    from .sky130_inverter import SKY130_REGRESSION_CELLS
+
+    defaults = default_test_point(pcell)
+    if is_sky130a and pcell.name in SKY130_REGRESSION_CELLS:
+        return [defaults, {**defaults, "metal1_test_width": "0.035"}]
+    if is_domestic180:
+        return [defaults, {**defaults, "metal_width": "0.12"}]
+    return [defaults]
+
+
 def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]:
     """Generate a deterministic Cartesian matrix from parameter boundaries."""
     if limit <= 0 or not pcell.parameters:

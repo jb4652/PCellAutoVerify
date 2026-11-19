@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from .process_console import run_process
+
 
 def run_sky130_magic(
     pdk_root: Path, layout: Path, top_cell: str, script_name: str, output: Path, log: Path,
@@ -41,7 +43,7 @@ def run_sky130_magic(
             "PCELL_MAGIC_OUTPUT": str(output_tmp),
         })
         try:
-            completed = subprocess.run(
+            completed = run_process(
                 [executable, "-dnull", "-noconsole", "-rcfile", str(rcfile), str(script)],
                 cwd=scratch, env=env, capture_output=True, text=True, errors="replace", timeout=300,
             )

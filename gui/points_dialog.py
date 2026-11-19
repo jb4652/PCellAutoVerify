@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from core import PCell
 from core.models import GeneratedLayout
+from core.process_console import command_entry
 
 
 class LayoutPreviewView(QGraphicsView):
@@ -60,9 +61,10 @@ class LayoutPreviewView(QGraphicsView):
 
 class TestPointsDialog(QDialog):
     def __init__(
-        self, pcell: PCell, points: list[GeneratedLayout], parent=None
+        self, pcell: PCell, points: list[GeneratedLayout], parent=None, *, write_console=None
     ) -> None:
         super().__init__(parent)
+        self.write_console = write_console
         self.setWindowTitle(f"Test Points — {pcell.name}")
         self.resize(1000, 480)
 
@@ -133,12 +135,14 @@ class TestPointsDialog(QDialog):
         pixmap = QPixmap(preview) if preview else QPixmap()
         if pixmap.isNull():
             executable = shutil.which("klayout")
+            if executable and self.write_console:
+                self._launch_layout_viewer(executable, path)
+                return
             if executable:
                 started, _ = QProcess.startDetached(executable, [path])
                 if started:
                     return
-            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent))):
-                QMessageBox.warning(self, "View Layout", f"GDS file:\n{path}")
+            self._open_layout_folder(path)
             return
         dialog = QDialog(self)
         dialog.setWindowTitle("Layout Preview")
@@ -149,3 +153,37 @@ class TestPointsDialog(QDialog):
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.exec()
+
+
+    def _open_layout_folder(self, path: str) -> None:
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent))):
+            QMessageBox.warning(self, "View Layout", f"GDS file:\n{path}")
+
+    def _launch_layout_viewer(self, executable: str, path: str) -> None:
+        # The viewer can outlive the test points dialog.
+        process = QProcess(self.parent() or self)
+        write = self.write_console
+        write(command_entry([executable, path]))
+
+        def drain(reader, label):
+            data = bytes(reader())
+            if data:
+                write(f"[KLayout {label}]\n{data.decode(errors='replace').rstrip()}")
+
+        def finished(code, _status):
+            drain(process.readAllStandardOutput, "stdout")
+            drain(process.readAllStandardError, "stderr")
+            write(f"[KLayout exit: {code}]")
+            process.deleteLater()
+
+        def failed(error):
+            write(f"[KLayout process error: {process.errorString()}]")
+            if error == QProcess.ProcessError.FailedToStart:
+                self._open_layout_folder(path)
+                process.deleteLater()
+
+        process.readyReadStandardOutput.connect(lambda: drain(process.readAllStandardOutput, "stdout"))
+        process.readyReadStandardError.connect(lambda: drain(process.readAllStandardError, "stderr"))
+        process.finished.connect(finished)
+        process.errorOccurred.connect(failed)
+        process.start(executable, [path])

@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from core.process_console import run_process
+
 from core import PCell, PDK, Parameter
 from core import sky130_library
 
@@ -154,7 +156,7 @@ class OpenPDKsPlugin(PDKPlugin):
         with TemporaryDirectory(prefix="sky130-pcells-") as directory:
             output = Path(directory) / "pcells.json"
             try:
-                result = subprocess.run(
+                result = run_process(
                     [sys.executable, sky130_library.__file__, str(root.resolve()), str(output)],
                     capture_output=True,
                     text=True,

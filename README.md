@@ -84,6 +84,39 @@ Sky130A 的 `nfet`、`pfet` 和 `cmos_inverter` 各生成两个测试点。第�
 
 在 **PDK Manager → Import PDK...** 选择 `pdks/domestic180` 并激活 **domestic180**。它包含 180 nm 的 `nmos`、`pmos` 和四端口 `inverter`，支持自动和手动生成版图、GDS 预览及 DRC、LVS 和 RCX。规则、层定义和寄生估算说明见 [domestic180 文档](pdks/domestic180/README.md)。
 
+## 命令行运行和结果对照
+
+先激活运行平台时使用的 Python 虚拟环境。Sky130A 需要同一套 PDK，且 `magic` 和 `netgen-lvs` 位于 `PATH`。domestic180 使用应用内的 KLayout Python 后端。
+
+```bash
+# 查看可用器件
+scripts/run_pcell.sh --pdk "$SKY130A_ROOT" --list
+
+# 生成与界面相同的自动用例，并运行支持的检查
+scripts/run_pcell.sh --pdk "$SKY130A_ROOT" --pcell cmos_inverter
+scripts/run_pcell.sh --pdk pdks/domestic180 --pcell inverter
+
+# 模拟界面参数修改，触发参数校正后生成一个手动用例
+scripts/run_pcell.sh --pdk "$SKY130A_ROOT" --pcell nfet --case manual --set l=0.10
+
+# 用界面实际生成的版图复跑。保留相邻的 .json 参数文件
+scripts/run_pcell.sh --pdk "$SKY130A_ROOT" --pcell nfet --gds "$GDS_FILE"
+```
+
+也可用 `python scripts/run_pcell.py` 代替 Shell 入口。默认输出在 `output/cli/` 下，每次运行创建独立目录，写出 GDS、检查报告和 `summary.json`。可用 `--checks drc lvs` 只运行指定检查，用 `--case default` 或 `--case negative` 只运行一组。重跑界面中预期违反 DRC 的 GDS 时，使用 `--gds ... --case negative`。重跑 domestic180 的手动版图时，使用 `--gds ... --case manual --set KEY=VALUE` 提供实际生效的参数。命令退出码为 0 表示结果符合预期，包含预期的 DRC 违规。手动用例的退出码为 0 要求所选检查通过。
+
+### 直接调用 Magic 与 Netgen
+
+将 `GDS_FILE` 和 `REFERENCE_FILE` 分别设为要核对的界面 GDS 和对应检查生成的参考 SPICE 文件：
+
+```bash
+scripts/replay_sky130_native.sh "$SKY130A_ROOT" "$GDS_FILE" "$REFERENCE_FILE"
+```
+
+该脚本直接用现有的 `run_nmos_drc.tcl`、`extract_nmos_lvs.tcl` 和 `extract_nmos_rcx.tcl` 调用 Magic，并运行 `netgen-lvs -batch lvs`。原始 DRC 报告、LVS 日志和 RCX SPICE 位于 `output/cli/native-*/`。脚本退出成功表示命令完成，检查结论以原始报告为准。需要自动判读结果时，使用上面的 `run_pcell.sh`。
+
+直接调用 Magic 时，`SKY130A_ROOT` 使用指向名为 `sky130A` 的安装目录的绝对路径。界面生成的顶层单元为 `VERIFY_TOP`。独立 NMOS 脚本生成的版图可在命令末尾传入 `NMOS_TOP`。Netgen 的原始日志中，连接匹配和器件属性错误可以同时出现，平台和命令行入口都会把属性错误判为 LVS 失败。
+
 ## 开发
 
 ```bash

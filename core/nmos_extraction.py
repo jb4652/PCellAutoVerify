@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from .process_console import run_process
+
 from .magic_drc import run_sky130_magic
 from .models import GeneratedLayout
 from .sky130_inverter import INVERTER_MODELS, INVERTER_NAME, INVERTER_PORTS
@@ -92,7 +94,7 @@ def _compare_lvs(directory: Path, setup: Path, top: str, prefix: str = "nmos") -
         for name in (extracted, reference):
             shutil.copyfile(directory / name, scratch / name)
         try:
-            completed = subprocess.run(
+            completed = run_process(
                 [executable, "-batch", "lvs", f"{extracted} {top}",
                  f"{reference} {top}", str(setup), log],
                 cwd=scratch, capture_output=True, text=True, errors="replace", timeout=300,

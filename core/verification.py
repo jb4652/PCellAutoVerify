@@ -13,6 +13,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .process_console import run_process
 from .domestic180_verification import check_drc as check_domestic180_drc, is_domestic180
 from .magic_drc import check_sky130_layout
 from .models import GeneratedLayout, PCell, VerificationResult
@@ -299,7 +300,7 @@ class KLayoutVerifier:
                 "PCELL_VERIFY_OUTPUT": str(output),
                 "PCELL_VERIFY_CALLBACK": changed,
             })
-            result = subprocess.run(
+            result = run_process(
                 [sys.executable, str(runner)], capture_output=True, text=True,
                 errors="replace", timeout=30, env=environment,
             )
@@ -337,7 +338,7 @@ class KLayoutVerifier:
             # the application.  The ``klayout`` Python package provides the
             # same layout API without crossing that interpreter boundary.
             try:
-                generated = subprocess.run(
+                generated = run_process(
                     [sys.executable, str(runner)],
                     capture_output=True, text=True, timeout=120, env=environment,
                 )
@@ -400,7 +401,7 @@ class KLayoutVerifier:
         for name, value in runtime_data:
             arguments.extend(("-rd", f"{name}={value}"))
         try:
-            checked = subprocess.run(
+            checked = run_process(
                 arguments, capture_output=True, text=True, timeout=300,
                 cwd=self.pdk_root, env=self._environment(),
             )
