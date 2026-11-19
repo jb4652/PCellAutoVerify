@@ -68,6 +68,12 @@ magic -dnull -noconsole -rcfile "$rcfile" scripts/extract_nmos_rcx.tcl
 python scripts/check_nmos_rcx.py
 ```
 
+## Sky130A 自定义 CMOS 反相器
+
+激活含有 `nfet` 和 `pfet` 的 Sky130A 后，在 **Custom PCells** 中选择 `cmos_inverter`。它是应用提供的组合器件，原厂的 18 个 PCell 仍按库注册结果显示。默认各用一个单指 1.8 V NFET 和 PFET，宽度为 0.42 µm，长度为 0.15 µm。可编辑 `wn`、`ln`、`wp`、`lp`，尺寸按 0.005 µm 工艺网格输入。
+
+**Generate Test Points** 生成一个 GDS，**View Test Points** 可预览。两管共栅接 `A`，共漏接 `Y`，源极和体端接各自的 `VDD` 或 `VSS`。**DRC** 检查整个版图，**LVS** 用独立参考网表核对两个器件和四个端口，**RCX** 提取器件与互连寄生参数。沿用 Sky130A 的 Magic 和 Netgen 配置。
+
 ## 开发
 
 ```bash

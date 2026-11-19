@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 from .magic_drc import run_sky130_magic
 from .models import GeneratedLayout
+from .sky130_inverter import INVERTER_MODELS, INVERTER_NAME, INVERTER_PORTS
 from .sky130_nmos import MOS_PCELL_NAMES
 
 
@@ -20,16 +21,17 @@ class RcxCounts:
     mos: int
     resistors: int
     capacitors: int
+    all_models_present: bool = True
 
     @property
     def status(self) -> str:
-        return "PASS_BASIC" if self.mos else "FAIL"
+        return "PASS_BASIC" if self.mos and self.all_models_present else "FAIL"
 
     def describe(self) -> str:
         return (
             f"Expected MOS model: {self.model}\nMOS instances: {self.mos}\n"
             f"Resistors: {self.resistors}\nCapacitors: {self.capacitors}\n\n"
-            "Basic check: expected MOS model present. A zero resistor or capacitor count is shown as extracted."
+            "Basic check: verifies the expected MOS models. Zero resistor or capacitor counts are shown as extracted."
         )
 
 
@@ -57,6 +59,20 @@ def _reference_spice(top: str, model: str, values: dict) -> str:
         for index in range(int(fingers))
     ]
     return "\n".join(["* Reference from effective PCell parameters", f".subckt {top}", *devices, f".ends {top}", ""])
+
+
+def _inverter_reference(top: str, devices: list[dict]) -> str:
+    lines = [f".subckt {top} {' '.join(INVERTER_PORTS)}"]
+    for device, supply, transistor in zip(devices, ("VSS", "VDD"), MOS_PCELL_NAMES, strict=True):
+        width, length = (float(device[key]) for key in ("w", "l"))
+        model = device["type"]
+        if model != f"sky130_fd_pr__{transistor}_01v8" or device["nf"] != 1:
+            raise ValueError("The inverter reference requires one standard 1.8 V MOS of each type")
+        if not all(math.isfinite(dimension) and dimension > 0 for dimension in (width, length)):
+            raise ValueError("Inverter reference requires positive finite dimensions")
+        lines.append(f"X{transistor} Y A {supply} {supply} {model} w={width:g} l={length:g}")
+    lines.append(f".ends {top}")
+    return "\n".join(lines) + "\n"
 
 
 def _compare_lvs(directory: Path, setup: Path, top: str, prefix: str = "nmos") -> tuple[str, str]:
@@ -99,20 +115,20 @@ def _compare_lvs(directory: Path, setup: Path, top: str, prefix: str = "nmos") -
     return "ERROR", f"Netgen did not report a conclusive comparison\n{content}"
 
 
-def _count_rcx(spice: Path, model: str) -> RcxCounts:
+def _count_rcx(spice: Path, models: tuple[str, ...]) -> RcxCounts:
     text = spice.read_text(encoding="utf-8", errors="replace")
-    model_count = 0
+    model_counts = dict.fromkeys((model.casefold() for model in models), 0)
     for line in text.splitlines():
         words = line.split()
-        if len(words) >= 6 and words[0][0].lower() in ("m", "x") and words[5].casefold() == model.casefold():
-            model_count += 1
+        if len(words) >= 6 and words[0][0].lower() in ("m", "x") and words[5].casefold() in model_counts:
+            model_counts[words[5].casefold()] += 1
     resistors = len(re.findall(r"^\s*R\S+\s+\S+\s+\S+\s+\S+", text, re.I | re.M))
     capacitors = len(re.findall(r"^\s*C\S+\s+\S+\s+\S+\s+\S+", text, re.I | re.M))
-    return RcxCounts(model, model_count, resistors, capacitors)
+    return RcxCounts(", ".join(models), sum(model_counts.values()), resistors, capacitors, all(model_counts.values()))
 
 
 def summarize_rcx(spice: Path, model: str) -> tuple[str, str]:
-    counts = _count_rcx(spice, model)
+    counts = _count_rcx(spice, (model,))
     return counts.status, counts.describe()
 
 
@@ -124,17 +140,28 @@ def run_mos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> Ext
             raise ValueError(f"GDS file unavailable: {point.layout_path or point.message}")
         data = json.loads(layout.with_suffix(".json").read_text(encoding="utf-8"))
         values = data["actual"]
-        model = values["type"]
         name = data.get("pcell")
-        if name not in MOS_PCELL_NAMES or not isinstance(model, str) or not re.fullmatch(
-            rf"sky130_fd_pr__{name}_\w+", model,
-        ):
-            raise ValueError("Expected Sky130A nfet or pfet metadata with a matching SPICE model")
-        prefix = "nmos" if name == "nfet" else "pmos"
         top = "VERIFY_TOP"
+        if name == INVERTER_NAME:
+            devices = data["devices"]
+            models = tuple(device["type"] for device in devices)
+            if models != INVERTER_MODELS:
+                raise ValueError("Expected one NFET and one PFET in inverter metadata")
+            prefix = "inverter"
+        else:
+            model = values["type"]
+            if name not in MOS_PCELL_NAMES or not isinstance(model, str) or not re.fullmatch(
+                rf"sky130_fd_pr__{name}_\w+", model,
+            ):
+                raise ValueError("Expected Sky130A MOS metadata with a matching SPICE model")
+            models = (model,)
+            prefix = "nmos" if name == "nfet" else "pmos"
         directory.mkdir(parents=True, exist_ok=True)
         if mode == "lvs":
-            reference = _reference_spice(top, model, values)
+            reference = (
+                _inverter_reference(top, devices) if name == INVERTER_NAME
+                else _reference_spice(top, models[0], values)
+            )
             (directory / f"{prefix}_reference.spice").write_text(reference, encoding="utf-8")
             spice = directory / f"{prefix}_extracted.spice"
         else:
@@ -158,10 +185,10 @@ def run_mos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> Ext
                 summary = "Netlist mismatch"
             return ExtractionResult(point.index, status, f"Files: {directory}\n\n{details}", summary)
 
-        counts = _count_rcx(spice, model)
+        counts = _count_rcx(spice, models)
         return ExtractionResult(
             point.index, counts.status, f"Files: {directory}\n\n{counts.describe()}",
-            "Expected MOS model found" if counts.mos else "Expected MOS model missing",
+            "Expected MOS models found" if counts.all_models_present else "Expected MOS model missing",
             counts,
         )
     except (OSError, ValueError, KeyError, TypeError) as error:

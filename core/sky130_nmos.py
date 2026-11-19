@@ -49,6 +49,10 @@ def instantiate_nmos(layout, python_dir: Path, overrides: dict):
 
 def instantiate_mos(layout, python_dir: Path, name: str, overrides: dict):
     """Instantiate the selected MOS PCell with the Sky130A compatibility fixes."""
+    return instantiate_library_mos(layout, load_mos_library(python_dir), name, overrides)
+
+
+def load_mos_library(python_dir: Path):
     import kfactory as kf
     import kfactory.kcell as kc
 
@@ -60,7 +64,10 @@ def instantiate_mos(layout, python_dir: Path, name: str, overrides: dict):
 
     pdk.take_component = _transfer_component
     draw_fet.take_component = _transfer_component
+    return library
 
+
+def instantiate_library_mos(layout, library, name: str, overrides: dict):
     declaration = library.layout().pcell_declaration(name)
     if declaration is None:
         raise ValueError(f"The Sky130A library does not register {name}")

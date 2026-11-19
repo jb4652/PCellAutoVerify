@@ -57,10 +57,12 @@ if library_path:
     from pathlib import Path
     from core.sky130_library import load_library
 
+    from core.sky130_inverter import INVERTER_NAME, instantiate_inverter
     from core.sky130_nmos import MOS_PCELL_NAMES, instantiate_mos, write_metadata
 
-    if class_name in MOS_PCELL_NAMES:
-
+    if class_name == INVERTER_NAME:
+        cell, metadata = instantiate_inverter(layout, Path(library_path), values)
+    elif class_name in MOS_PCELL_NAMES:
         cell, metadata = instantiate_mos(layout, Path(library_path), class_name, values)
     else:
         library = load_library(Path(library_path))
@@ -101,8 +103,9 @@ if hasattr(layout, "error_layer") and hasattr(layout, "each_cell"):
                 error_messages.append("unknown PCell generation error")
 if error_messages:
     raise RuntimeError("PCell generation failed: " + "\n".join(error_messages))
-top = layout.create_cell("VERIFY_TOP")
-top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
+top = cell if getattr(cell, "name", "") == "VERIFY_TOP" else layout.create_cell("VERIFY_TOP")
+if top != cell:
+    top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
 layout.write(output)
 if metadata is not None:
     write_metadata(Path(output), metadata)

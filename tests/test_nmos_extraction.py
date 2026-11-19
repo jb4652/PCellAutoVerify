@@ -46,3 +46,16 @@ def test_rcx_counts_instances_and_allows_zero_resistors(tmp_path: Path):
     assert "Resistors: 0" in details
     assert "Capacitors: 1" in details
     assert summarize_rcx(spice, "sky130_fd_pr__nfet_01v8_lvt")[0] == "FAIL"
+
+
+def test_inverter_reference_connects_both_body_terminals_to_supply():
+    from core.nmos_extraction import _inverter_reference
+
+    devices = [
+        {"type": f"sky130_fd_pr__{name}_01v8", "w": 0.42, "l": 0.15, "nf": 1}
+        for name in ("nfet", "pfet")
+    ]
+    reference = _inverter_reference("VERIFY_TOP", devices)
+    assert ".subckt VERIFY_TOP A Y VDD VSS" in reference
+    assert "Xnfet Y A VSS VSS sky130_fd_pr__nfet_01v8" in reference
+    assert "Xpfet Y A VDD VDD sky130_fd_pr__pfet_01v8" in reference
