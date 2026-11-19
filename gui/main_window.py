@@ -287,7 +287,11 @@ class MainWindow(QMainWindow):
         active = next(
             (pdk for pdk in self.database.list_pdks() if pdk.active), None
         )
-        flat = active is not None and active.plugin == "open-pdks" and is_sky130a(active.name)
+        sky130_tree = active is not None and active.plugin == "open-pdks" and is_sky130a(active.name)
+        flat = active is not None and (
+            sky130_tree or active.plugin == "domestic180"
+            or (active.plugin == "open-pdks" and "gf180" in active.name.casefold())
+        )
         header = self.cells.header()
         header.setStretchLastSection(not flat)
         header.setSectionResizeMode(
@@ -298,7 +302,7 @@ class MainWindow(QMainWindow):
             self.active_sky130a = is_sky130a(active.name)
             self.active_domestic180 = active.plugin == "domestic180"
             self.current_cells = list(active.pcells)
-            if flat and set(MOS_PCELL_NAMES).issubset(cell.name for cell in active.pcells):
+            if sky130_tree and set(MOS_PCELL_NAMES).issubset(cell.name for cell in active.pcells):
                 self.current_cells.append(inverter_pcell())
             root = QTreeWidgetItem([active.name])
             root.setData(0, Qt.ItemDataRole.UserRole, None)
@@ -311,7 +315,7 @@ class MainWindow(QMainWindow):
                     for part in PurePath(cell.source.replace("\\", "/")).parts
                     if part not in ("/", ".")
                 )
-                if flat and cell.name == INVERTER_NAME:
+                if sky130_tree and cell.name == INVERTER_NAME:
                     path_parts = ("Custom PCells",)
                 for depth, part in enumerate(path_parts):
                     key = path_parts[: depth + 1]
@@ -320,10 +324,10 @@ class MainWindow(QMainWindow):
                     parent = branches[key]
                 label = cell.name
                 tooltip = cell.source
-                if flat and cell.source and Path(cell.source).suffix == ".py":
-                    source = Path(cell.source)
+                source = Path(cell.source.replace("\\", "/"))
+                if flat and source.suffix.casefold() == ".py":
                     label = f"{cell.name} ({source.name})"
-                    tooltip = str(Path(active.path) / source)
+                    tooltip = str((Path(active.path) / source).absolute())
                 cell_item = QTreeWidgetItem(parent, [label])
                 cell_item.setData(0, Qt.ItemDataRole.UserRole, index)
                 cell_item.setToolTip(0, tooltip)
