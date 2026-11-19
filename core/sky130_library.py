@@ -13,6 +13,25 @@ def is_sky130a(name: str) -> bool:
     return name.casefold() == "sky130a"
 
 
+def find_sky130_python_dir(path: Path) -> Path | None:
+    """Locate the cells package from a PDK, KLayout, or Python directory."""
+    path = path.expanduser()
+    for candidate in (path / SKY130_PYTHON_PATH, path / "python", path):
+        if (candidate / "cells" / "__init__.py").is_file():
+            return candidate.absolute()
+    return None
+
+
+def sky130_pdk_root(path: Path) -> Path:
+    """Keep the installation root when the selected folder is inside Sky130A."""
+    for directory in path.parents:
+        if is_sky130a(directory.name) and path.relative_to(directory) in (
+            SKY130_PYTHON_PATH.parent, SKY130_PYTHON_PATH,
+        ):
+            return directory
+    return path
+
+
 def load_library(python_dir: Path):
     import klayout.db as kdb
 

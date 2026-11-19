@@ -254,3 +254,29 @@ def test_violation_count_accepts_namespaces_and_item_attributes(tmp_path: Path):
     )
 
     assert KLayoutVerifier._violation_count(report) == 2
+
+
+def test_legacy_nfet_uses_library_and_keeps_gds_without_drc(tmp_path: Path):
+    root = tmp_path / "PDK with spaces" / "sky130A"
+    python_dir = root / "libs.tech/klayout/python"
+    cells = python_dir / "cells"
+    cells.mkdir(parents=True)
+    (cells / "__init__.py").touch()
+    pcell = PCell("nfet", "libs.tech/klayout/python/cells/fet.py")
+
+    def generate(command, **kwargs):
+        environment = kwargs["env"]
+        assert environment["PCELL_VERIFY_LIBRARY"] == str(python_dir)
+        Path(environment["PCELL_VERIFY_OUTPUT"]).touch()
+        return subprocess.CompletedProcess(command, 0)
+
+    with patch("core.verification.shutil.which", return_value=None), patch(
+        "core.verification.subprocess.run", side_effect=generate
+    ):
+        verifier = KLayoutVerifier(str(python_dir.parent), str(tmp_path / "output"))
+        result, = verifier.verify(pcell, [{"w": "0.42"}])
+
+    assert verifier.pdk_root == root
+    assert not result.passed
+    assert "KLayout executable not found" in result.message
+    assert Path(result.layout_path).is_file()

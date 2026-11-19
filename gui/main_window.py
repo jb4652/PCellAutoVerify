@@ -375,7 +375,13 @@ class MainWindow(QMainWindow):
             f"Running KLayout DRC for '{cell.name}' ({len(points)} point(s)) …"
         )
         self.verification_requested.emit(cell, points)
-        results = KLayoutVerifier(self.active_pdk_path).verify(cell, points)
+        try:
+            results = KLayoutVerifier(self.active_pdk_path).verify(cell, points)
+        except OSError as error:
+            results = [
+                VerificationResult(index, point, False, f"Unable to access verification files: {error}")
+                for index, point in enumerate(points, 1)
+            ]
         self.verification_results[row] = results
         passed = sum(result.passed for result in results)
         failed = len(results) - passed

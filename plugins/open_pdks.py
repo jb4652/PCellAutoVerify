@@ -52,6 +52,7 @@ class OpenPDKsPlugin(PDKPlugin):
         return f"choices=[{default}]"
 
     def supports(self, root: Path) -> bool:
+        root = sky130_library.sky130_pdk_root(root)
         if not root.is_dir():
             return False
         names = {entry.name.lower() for entry in root.iterdir()}
@@ -180,6 +181,7 @@ class OpenPDKsPlugin(PDKPlugin):
         ]
 
     def scan(self, root: Path) -> PDK:
+        root = sky130_library.sky130_pdk_root(root)
         resolved = root.resolve()
         for name in (root.name, resolved.name):
             if sky130_library.is_sky130a(name):

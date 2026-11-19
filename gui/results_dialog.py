@@ -4,8 +4,8 @@ import html
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QTemporaryDir, Qt
-from PySide6.QtGui import QColor, QPageSize, QPdfWriter, QPixmap, QTextDocument
+from PySide6.QtCore import QProcess, QTemporaryDir, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QPageSize, QPdfWriter, QPixmap, QTextDocument
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import (
@@ -52,12 +52,15 @@ class VerificationResultsDialog(QDialog):
             table.setItem(row, 2, QTableWidgetItem(f"{details}\n{result.message}"))
             if result.layout_path:
                 preview = self._thumbnail(result.preview_path)
+                preview.setToolTip(result.layout_path)
                 table.setCellWidget(row, 3, preview)
                 button = QPushButton("View Layout")
                 button.clicked.connect(
-                    lambda checked=False, path=result.preview_path: self._show_large(path)
+                    lambda checked=False, layout=result.layout_path, preview=result.preview_path:
+                    self._view_layout(layout, preview)
                 )
-                button.setEnabled(bool(result.preview_path and Path(result.preview_path).exists()))
+                button.setEnabled(Path(result.layout_path).is_file())
+                button.setToolTip(result.layout_path)
                 table.setCellWidget(row, 4, button)
                 table.setRowHeight(row, 110)
         layout.addWidget(table)
@@ -128,10 +131,16 @@ class VerificationResultsDialog(QDialog):
                 ))
         return label
 
-    def _show_large(self, path: str) -> None:
-        pixmap = QPixmap(path)
+    def _view_layout(self, path: str, preview: str) -> None:
+        pixmap = QPixmap(preview) if preview else QPixmap()
         if pixmap.isNull():
-            QMessageBox.warning(self, "View Layout", f"Unable to load layout preview:\n{path}")
+            executable = shutil.which("klayout")
+            if executable:
+                started, _ = QProcess.startDetached(executable, [path])
+                if started:
+                    return
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent))):
+                QMessageBox.warning(self, "View Layout", f"GDS file:\n{path}")
             return
         dialog = QDialog(self)
         dialog.setWindowTitle("Layout Preview")

@@ -31,7 +31,7 @@ Nplus、接触孔及源漏 Metal1 的 NMOS 版图，可用于第一次生成测�
 
 ## 生成 Sky130A NMOS
 
-启动应用并激活已导入的 `sky130A` 后，选择 `nfet`，依次点击 **Generate Test Points** 和 **Run Verify**。每次运行会在 `output/verification/run-*/` 保存 GDS、实际生效的参数 JSON，以及规则执行时生成的 DRC 报告。缺少 KLayout 命令行工具或规则文件时，仍会尝试生成 GDS，并说明 DRC 未运行。
+启动应用并激活已导入的 `sky130A` 后，选择 `nfet`，依次点击 **Generate Test Points** 和 **Run Verify**。每次运行会在 `output/verification/run-*/` 保存 GDS、实际生效的参数 JSON，以及规则执行时生成的 DRC 报告。缺少 KLayout 命令行工具或规则文件时，仍会尝试生成 GDS，并说明 DRC 未运行。输出区会显示 GDS 的完整路径，DRC 结果中的 **View Layout** 在没有预览图时可以打开 GDS 或其所在目录。
 
 从工程根目录也可以单独生成 GDS：
 
@@ -39,7 +39,7 @@ Nplus、接触孔及源漏 Metal1 的 NMOS 版图，可用于第一次生成测�
 python scripts/generate_sky130_nmos.py --pdk "$SKY130_KLAYOUT" --w 0.42 --l 0.15 --nf 1 --output output/nmos.gds
 ```
 
-`SKY130_KLAYOUT` 指向 `sky130A/libs.tech/klayout`。脚本和应用共用 Sky130A 的兼容处理，参数配置位于 `config/sky130_nmos.json`。请使用已安装兼容版本 `gdsfactory` 和 `kfactory` 的 Python 环境。命令同时写出 `output/nmos.json`，记录请求值和实例化后的实际参数。`--m` 只记录到 JSON。
+`SKY130_KLAYOUT` 通常指向 `sky130A/libs.tech/klayout`。脚本也接受 `sky130A` 根目录或其 `libs.tech/klayout/python` 子目录。在界面导入这三个目录时，应用会按 Sky130A 安装根目录保存 PDK。脚本和应用共用 Sky130A 的兼容处理，参数配置位于 `config/sky130_nmos.json`。请使用已安装兼容版本 `gdsfactory` 和 `kfactory` 的 Python 环境。命令同时写出 `output/nmos.json`，记录请求值和实例化后的实际参数。`--m` 只记录到 JSON。
 
 ## 开发
 

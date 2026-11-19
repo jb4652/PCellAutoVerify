@@ -67,3 +67,17 @@ def test_results_dialog_creates_viewable_and_saveable_pdf_report(tmp_path: Path)
     viewer_dialog.close()
     dialog.close()
     app.processEvents()
+
+
+def test_layout_button_remains_enabled_without_png(tmp_path: Path):
+    app = QApplication.instance() or QApplication([])
+    layout = tmp_path / "nfet.gds"
+    layout.touch()
+    result = VerificationResult(1, {}, False, "DRC unavailable", str(layout))
+    dialog = VerificationResultsDialog(PCell("nfet", "fet.py"), [result])
+    table = dialog.findChild(QTableWidget)
+    button = table.cellWidget(0, 4)
+    assert button.isEnabled()
+    assert button.toolTip() == str(layout)
+    dialog.close()
+    app.processEvents()

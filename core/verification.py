@@ -14,6 +14,12 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .models import PCell, VerificationResult
+from .sky130_library import (
+    SKY130_PYTHON_PATH,
+    find_sky130_python_dir,
+    is_sky130a,
+    sky130_pdk_root,
+)
 
 
 _RUNNER = r'''import importlib, json, os, re, runpy, sys
@@ -99,7 +105,9 @@ if metadata is not None:
     write_metadata(Path(output), metadata)
 if preview:
     try:
-        view = pya.LayoutView()
+        from klayout.lay import LayoutView
+
+        view = LayoutView()
         view.show_layout(layout, True)
         view.max_hier()
         view.zoom_fit()
@@ -115,11 +123,12 @@ class KLayoutVerifier:
     """Generate every layout and run the first DRC deck found in the PDK."""
 
     def __init__(self, pdk_root: str, output_root: str | None = None):
-        self.pdk_root = Path(pdk_root).expanduser().resolve()
+        self.pdk_root = sky130_pdk_root(Path(pdk_root).expanduser().absolute()).resolve()
         if output_root:
             self.output_root = Path(output_root).expanduser().resolve()
         else:
-            base = Path("output/verification").resolve()
+            project = Path(__file__).resolve().parents[1]
+            base = (project if (project / "pyproject.toml").is_file() else Path.cwd()) / "output/verification"
             base.mkdir(parents=True, exist_ok=True)
             self.output_root = Path(tempfile.mkdtemp(prefix="run-", dir=base))
 
@@ -182,7 +191,7 @@ class KLayoutVerifier:
                 for root in standard_library
             )
 
-        paths = [path for path in paths if safe_for_embedded_python(path)]
+        paths = [os.path.abspath(path) for path in paths if safe_for_embedded_python(path)]
         # KLayout embeds a separate Python interpreter, so an activated virtual
         # environment's site-packages is not necessarily on its import path.
         # The runner removes paths belonging to a different Python minor after
@@ -206,10 +215,26 @@ class KLayoutVerifier:
     def verify(self, pcell: PCell, points: list[dict[str, str]]) -> list[VerificationResult]:
         executable = shutil.which("klayout")
         source = self.pdk_root / pcell.source
-        library_path = self.pdk_root / pcell.library_path if pcell.library_path else None
-        # Earlier Sky130A imports stored the library directory as the source.
-        if library_path is None and (source / "cells" / "__init__.py").is_file():
-            library_path = source
+        # Historical imports sometimes stored only the source file or the library
+        # directory. An nfet from that tree still needs the NMOS compatibility code.
+        library_path = source if (source / "cells" / "__init__.py").is_file() else None
+        legacy_sky130 = pcell.name == "nfet" and (
+            is_sky130a(self.pdk_root.name)
+            or source.is_relative_to(self.pdk_root / SKY130_PYTHON_PATH)
+        )
+        if pcell.library_path or legacy_sky130:
+            saved_path = self.pdk_root / pcell.library_path
+            library_path = (
+                find_sky130_python_dir(saved_path)
+                or library_path
+                or find_sky130_python_dir(self.pdk_root)
+            )
+            if library_path is None:
+                message = f"Sky130A cells/__init__.py not found under {saved_path} or {self.pdk_root}"
+                return [
+                    VerificationResult(index, point, False, message)
+                    for index, point in enumerate(points, 1)
+                ]
         deck = self._deck()
         self.output_root.mkdir(parents=True, exist_ok=True)
         runner = self.output_root / "instantiate.py"
@@ -221,7 +246,7 @@ class KLayoutVerifier:
             environment = self._environment()
             environment.update({
                 "PCELL_VERIFY_SOURCE": str(source),
-                "PCELL_VERIFY_LIBRARY": str(library_path.resolve()) if library_path else "",
+                "PCELL_VERIFY_LIBRARY": str(library_path) if library_path else "",
                 "PCELL_VERIFY_CLASS": pcell.name,
                 "PCELL_VERIFY_PARAMETERS": json.dumps(self._values(point)),
                 "PCELL_VERIFY_OUTPUT": str(layout),
@@ -232,10 +257,14 @@ class KLayoutVerifier:
             # cannot load binary dependencies (notably NumPy) installed for
             # the application.  The ``klayout`` Python package provides the
             # same layout API without crossing that interpreter boundary.
-            generated = subprocess.run(
-                [sys.executable, str(runner)],
-                capture_output=True, text=True, timeout=120, env=environment,
-            )
+            try:
+                generated = subprocess.run(
+                    [sys.executable, str(runner)],
+                    capture_output=True, text=True, timeout=120, env=environment,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                results.append(VerificationResult(index, point, False, f"GDS generation failed: {error}"))
+                continue
             if generated.returncode or not layout.exists():
                 message = (generated.stderr or generated.stdout or "PCell generation failed").strip()
                 results.append(VerificationResult(index, point, False, message[-1000:]))
@@ -266,11 +295,18 @@ class KLayoutVerifier:
             drc_arguments = [executable, "-b", "-r", str(deck)]
             for name, value in runtime_data:
                 drc_arguments.extend(("-rd", f"{name}={value}"))
-            checked = subprocess.run(
-                drc_arguments,
-                capture_output=True, text=True, timeout=300,
-                cwd=self.pdk_root, env=environment,
-            )
+            preview_path = str(preview) if preview.exists() else ""
+            try:
+                checked = subprocess.run(
+                    drc_arguments,
+                    capture_output=True, text=True, timeout=300,
+                    cwd=self.pdk_root, env=environment,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                results.append(VerificationResult(
+                    index, point, False, f"DRC could not complete: {error}", str(layout), preview_path,
+                ))
+                continue
             violations = self._violation_count(report) if report.exists() else 0
             passed = checked.returncode == 0 and report.exists() and violations == 0
             message = "DRC passed" if passed else (
@@ -279,6 +315,6 @@ class KLayoutVerifier:
             )
             results.append(VerificationResult(
                 index, point, passed, message, str(layout),
-                str(preview) if preview.exists() else "",
+                preview_path,
             ))
         return results

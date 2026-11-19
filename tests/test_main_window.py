@@ -146,6 +146,7 @@ class sky130(kdb.Library):
     monkeypatch.chdir(tmp_path)
     pdk = PluginRegistry().import_path(Path(alias.name))
     assert pdk.path == str(pdk_root)
+    assert PluginRegistry().import_path(package.parent).path == pdk.path
     assert database.import_pdk(pdk) == pdk_id
     assert len(database.list_pdks()) == 1
     imported_cell = database.list_pdks()[0].pcells[0]
