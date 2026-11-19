@@ -103,6 +103,7 @@ def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]
     concrete = [
         (parameter, values)
         for parameter in pcell.parameters
+        if not (parameter.hidden or parameter.readonly)
         if (values := parameter_values(parameter))
     ]
     if not concrete:

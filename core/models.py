@@ -8,6 +8,9 @@ class Parameter:
     name: str
     default: str = ""
     value_range: str = ""
+    description: str = ""
+    hidden: bool = False
+    readonly: bool = False
 
 
 @dataclass(slots=True)

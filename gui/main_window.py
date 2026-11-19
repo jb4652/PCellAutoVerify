@@ -261,8 +261,7 @@ class MainWindow(QMainWindow):
                 tooltip = cell.source
                 if flat and cell.source and Path(cell.source).suffix == ".py":
                     source = Path(cell.source)
-                    display_path = source if source.is_absolute() else Path(active.name) / source
-                    label = f"{cell.name} ({display_path.as_posix()})"
+                    label = f"{cell.name} ({source.name})"
                     tooltip = str(Path(active.path) / source)
                 cell_item = QTreeWidgetItem(parent, [label])
                 cell_item.setData(0, Qt.ItemDataRole.UserRole, index)
@@ -307,12 +306,13 @@ class MainWindow(QMainWindow):
         self.parameters.blockSignals(True)
         self.parameters.setRowCount(len(parameters))
         for index, parameter in enumerate(parameters):
-            if not parameter.value_range.strip():
+            if not cell.library_path and not parameter.value_range.strip():
                 parameter.value_range = inferred_range(parameter)
             values = (parameter.name, parameter.default, parameter.value_range)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if column == 0:
+                item.setToolTip(parameter.description)
+                if column == 0 or parameter.hidden or parameter.readonly:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.parameters.setItem(index, column, item)
         self.parameters.blockSignals(False)
@@ -323,6 +323,8 @@ class MainWindow(QMainWindow):
         if item.column() not in (1, 2) or row < 0 or row >= len(self.current_cells):
             return
         parameter = self.current_cells[row].parameters[item.row()]
+        if parameter.hidden or parameter.readonly:
+            return
         if item.column() == 1:
             parameter.default = item.text()
         else:

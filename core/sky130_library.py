@@ -29,7 +29,7 @@ def load_library(python_dir: Path):
     raise ValueError("Sky130A did not register a KLayout library")
 
 
-def _parameter_data(parameter) -> dict[str, str]:
+def _parameter_data(parameter) -> dict[str, str | bool]:
     choices = parameter.choice_values()
     limits = [
         f"{name}={value!r}"
@@ -43,6 +43,9 @@ def _parameter_data(parameter) -> dict[str, str]:
         "name": parameter.name,
         "default": repr(default) if isinstance(default, (str, int, float, bool)) else "",
         "value_range": ", ".join(limits),
+        "description": parameter.description or "",
+        "hidden": parameter.hidden,
+        "readonly": parameter.readonly,
     }
 
 
@@ -71,7 +74,6 @@ if __name__ == "__main__":
             "parameters": [
                 _parameter_data(parameter)
                 for parameter in declaration.get_parameters()
-                if not parameter.hidden and not parameter.readonly
             ],
         })
     Path(sys.argv[2]).write_text(json.dumps(data), encoding="utf-8")

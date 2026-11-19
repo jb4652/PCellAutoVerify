@@ -112,6 +112,9 @@ class Device(kdb.PCellDeclarationHelper):
         width = self.param("width", self.TypeDouble, "Width", default=0.6)
         width.add_choice("Narrow", 0.2)
         width.add_choice("Wide", 0.6)
+        self.param("length", self.TypeDouble, "Length", default=1.0)
+        self.param("area", self.TypeDouble, "Area", readonly=True, default=2.0)
+        self.param("internal", self.TypeInt, "Internal", hidden=True, default=1)
 """,
         encoding="utf-8",
     )
@@ -154,14 +157,22 @@ class sky130(kdb.Library):
         assert root.text(0) == "sky130A"
         assert root.isExpanded()
         assert [root.child(i).text(0) for i in range(root.childCount())] == [
-            f"device_{index:02} (sky130A/libs.tech/klayout/python/cells/devices.py)"
+            f"device_{index:02} (devices.py)"
             for index in range(18)
         ]
         assert root.child(0).toolTip(0) == str(package / "devices.py")
         window.cells.setCurrentItem(root.child(0))
+        assert window.parameters.rowCount() == 4
         assert window.parameters.item(0, 0).text() == "width"
+        assert window.parameters.item(0, 0).toolTip() == "Width"
         assert window.parameters.item(0, 1).text() == "0.6"
         assert window.parameters.item(0, 2).text() == "choices=[0.2, 0.6]"
+        assert window.parameters.item(1, 2).text() == ""
+        for row, name in ((2, "area"), (3, "internal")):
+            assert window.parameters.item(row, 0).text() == name
+            assert not window.parameters.item(row, 1).flags() & Qt.ItemFlag.ItemIsEditable
+        window.generate_points()
+        assert all(set(point) == {"width", "length"} for point in window.test_points[0])
     finally:
         window.close()
         database.close()

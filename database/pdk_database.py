@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from dataclasses import asdict
 from pathlib import Path
 
 from core import PCell, PDK, Parameter
@@ -72,16 +73,7 @@ class PDKDatabase:
             pdk_id = int(row[0])
             self.connection.execute("DELETE FROM pcells WHERE pdk_id=?", (pdk_id,))
             for cell in pdk.pcells:
-                payload = json.dumps(
-                    [
-                        {
-                            "name": parameter.name,
-                            "default": parameter.default,
-                            "value_range": parameter.value_range,
-                        }
-                        for parameter in cell.parameters
-                    ]
-                )
+                payload = json.dumps([asdict(parameter) for parameter in cell.parameters])
                 self.connection.execute(
                     "INSERT INTO pcells(pdk_id,name,source,parameters,library_path) "
                     "VALUES(?,?,?,?,?)",
