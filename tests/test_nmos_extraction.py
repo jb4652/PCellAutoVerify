@@ -2,18 +2,21 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from core.nmos_extraction import _compare_lvs, summarize_rcx
 
 
-def test_netgen_property_error_overrides_connectivity_match(tmp_path: Path):
+@pytest.mark.parametrize("prefix", ["nmos", "pmos"])
+def test_netgen_property_error_overrides_connectivity_match(tmp_path: Path, prefix: str):
     setup = tmp_path / "sky130A_setup.tcl"
     setup.touch()
-    for name in ("nmos_extracted.spice", "nmos_reference.spice"):
+    for name in (f"{prefix}_extracted.spice", f"{prefix}_reference.spice"):
         (tmp_path / name).touch()
 
     def compare(command, *, cwd, **kwargs):
-        assert command[3:5] == ["nmos_extracted.spice VERIFY_TOP", "nmos_reference.spice VERIFY_TOP"]
-        (cwd / "nmos_lvs.log").write_text(
+        assert command[3:5] == [f"{prefix}_extracted.spice VERIFY_TOP", f"{prefix}_reference.spice VERIFY_TOP"]
+        (cwd / f"{prefix}_lvs.log").write_text(
             "Circuits match uniquely.\nProperty errors were found.\n", encoding="utf-8"
         )
         return subprocess.CompletedProcess(command, 0, "", "")
@@ -21,7 +24,7 @@ def test_netgen_property_error_overrides_connectivity_match(tmp_path: Path):
     with patch("core.nmos_extraction.shutil.which", return_value="/usr/bin/netgen-lvs"), patch(
         "core.nmos_extraction.subprocess.run", side_effect=compare
     ):
-        status, details = _compare_lvs(tmp_path, setup, "VERIFY_TOP")
+        status, details = _compare_lvs(tmp_path, setup, "VERIFY_TOP", prefix)
 
     assert status == "FAIL"
     assert "Property errors were found." in details

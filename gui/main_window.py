@@ -29,8 +29,9 @@ from core import (
     inferred_range,
 )
 from core.models import GeneratedLayout
-from core.nmos_extraction import ExtractionResult, run_nmos_extraction
+from core.nmos_extraction import ExtractionResult, run_mos_extraction
 from core.sky130_library import is_sky130a
+from core.sky130_nmos import MOS_PCELL_NAMES
 from core.test_points import default_test_point
 from database import PDKDatabase
 from plugins import PluginRegistry
@@ -186,7 +187,7 @@ class MainWindow(QMainWindow):
         for mode in ("lvs", "rcx"):
             run_button = QPushButton(mode.upper())
             run_button.setObjectName(f"{mode}Button")
-            run_button.setToolTip("Run on generated Sky130A NFET GDS")
+            run_button.setToolTip("Run on generated Sky130A NFET or PFET GDS")
             run_button.clicked.connect(lambda checked=False, mode=mode: self.run_extraction(mode))
             results_button = QPushButton(f"{mode.upper()} Results")
             results_button.setObjectName(f"{mode}ResultsButton")
@@ -232,7 +233,7 @@ class MainWindow(QMainWindow):
         row = self._selected_cell_index()
         can_extract = (
             self.active_sky130a and 0 <= row < len(self.current_cells)
-            and self.current_cells[row].name == "nfet"
+            and self.current_cells[row].name in MOS_PCELL_NAMES
             and any(point.layout_path for point in self.test_points.get(row, []))
         )
         for mode, (run_button, results_button) in self.extraction_buttons.items():
@@ -459,7 +460,7 @@ class MainWindow(QMainWindow):
         label = mode.upper()
         self.write_output(f"Running {label} for '{self.current_cells[row].name}' …")
         results = [
-            run_nmos_extraction(Path(self.active_pdk_path).resolve(), point, mode)
+            run_mos_extraction(Path(self.active_pdk_path).resolve(), point, mode)
             for point in self.test_points[row]
         ]
         self.extraction_results[row, mode] = results

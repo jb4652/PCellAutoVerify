@@ -1,10 +1,13 @@
-"""Compatibility and layout generation for the Sky130A nfet PCell."""
+"""Compatibility and layout generation for Sky130A MOS PCells."""
 
 import json
 import tempfile
 from pathlib import Path
 
 from .sky130_library import load_library
+
+
+MOS_PCELL_NAMES = ("nfet", "pfet")
 
 
 def nmos_defaults() -> dict[str, object]:
@@ -16,17 +19,17 @@ def _transfer_component(component, target_cell):
     import klayout.db as kdb
 
     if target_cell is None:
-        raise ValueError("Sky130A nfet has no target cell")
+        raise ValueError("Sky130A MOS PCell has no target cell")
 
     # Older gdsfactory releases cannot expose the component as a KLayout cell.
-    with tempfile.TemporaryDirectory(prefix="sky130-nmos-") as directory:
+    with tempfile.TemporaryDirectory(prefix="sky130-mos-") as directory:
         path = Path(directory) / "component.gds"
         component.write_gds(str(path))
         source_layout = kdb.Layout()
         source_layout.read(str(path))
         source_cell = source_layout.top_cell()
         if source_cell is None or source_cell.bbox().empty():
-            raise RuntimeError("Sky130A nfet component GDS is empty")
+            raise RuntimeError("Sky130A MOS component GDS is empty")
 
         target_layout = target_cell.layout()
         if abs(source_layout.dbu - target_layout.dbu) > 1e-12:
@@ -40,7 +43,12 @@ def _transfer_component(component, target_cell):
 
 
 def instantiate_nmos(layout, python_dir: Path, overrides: dict):
-    """Instantiate the real PCell using the compatibility path exercised by the CLI."""
+    """Keep the standalone NMOS command on the shared MOS generation path."""
+    return instantiate_mos(layout, python_dir, "nfet", overrides)
+
+
+def instantiate_mos(layout, python_dir: Path, name: str, overrides: dict):
+    """Instantiate the selected MOS PCell with the Sky130A compatibility fixes."""
     import kfactory as kf
     import kfactory.kcell as kc
 
@@ -53,15 +61,15 @@ def instantiate_nmos(layout, python_dir: Path, overrides: dict):
     pdk.take_component = _transfer_component
     draw_fet.take_component = _transfer_component
 
-    declaration = library.layout().pcell_declaration("nfet")
+    declaration = library.layout().pcell_declaration(name)
     if declaration is None:
-        raise ValueError("The Sky130A library does not register an nfet PCell")
+        raise ValueError(f"The Sky130A library does not register {name}")
 
     definitions = declaration.get_parameters()
     params = {parameter.name: parameter.default for parameter in definitions}
     unknown = overrides.keys() - params.keys()
     if unknown:
-        raise ValueError(f"Unsupported nfet parameters: {', '.join(sorted(unknown))}")
+        raise ValueError(f"Unsupported {name} parameters: {', '.join(sorted(unknown))}")
 
     defaults = nmos_defaults()
     requested = {
@@ -72,22 +80,22 @@ def instantiate_nmos(layout, python_dir: Path, overrides: dict):
     requested.update(overrides)
     params.update(requested)
     layout.dbu = 0.001
-    cell = layout.create_cell("nfet", library.name(), params)
+    cell = layout.create_cell(name, library.name(), params)
     if cell is None:
-        raise RuntimeError("KLayout could not instantiate the Sky130A nfet")
+        raise RuntimeError(f"KLayout could not instantiate the Sky130A {name}")
     errors = list(cell.shapes(layout.error_layer()).each())
     if errors:
         details = "\n".join(shape.text.string for shape in errors if shape.is_text())
-        raise RuntimeError(details or "KLayout reported a Sky130A nfet generation error")
+        raise RuntimeError(details or f"KLayout reported a Sky130A {name} generation error")
     if cell.bbox().empty():
-        raise RuntimeError("Sky130A nfet produced no geometry")
+        raise RuntimeError(f"Sky130A {name} produced no geometry")
 
     actual = dict(zip(params, cell.pcell_parameters()))
     return cell, {
         "pdk": "sky130A",
         "device": actual.get("type"),
         "library": library.name(),
-        "pcell": "nfet",
+        "pcell": name,
         "requested": requested,
         "actual": actual,
     }

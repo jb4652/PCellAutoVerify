@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .magic_drc import check_sky130_layout
 from .models import GeneratedLayout, PCell, VerificationResult
+from .sky130_nmos import MOS_PCELL_NAMES
 from .sky130_library import (
     SKY130_PYTHON_PATH,
     find_sky130_python_dir,
@@ -56,10 +57,11 @@ if library_path:
     from pathlib import Path
     from core.sky130_library import load_library
 
-    if class_name == "nfet":
-        from core.sky130_nmos import instantiate_nmos, write_metadata
+    from core.sky130_nmos import MOS_PCELL_NAMES, instantiate_mos, write_metadata
 
-        cell, metadata = instantiate_nmos(layout, Path(library_path), values)
+    if class_name in MOS_PCELL_NAMES:
+
+        cell, metadata = instantiate_mos(layout, Path(library_path), class_name, values)
     else:
         library = load_library(Path(library_path))
         cell = layout.create_cell(class_name, library.name(), values)
@@ -216,9 +218,9 @@ class KLayoutVerifier:
     def generate_layouts(self, pcell: PCell, points: list[dict[str, str]]) -> list[GeneratedLayout]:
         source = self.pdk_root / pcell.source
         # Historical imports sometimes stored only the source file or the library
-        # directory. An nfet from that tree still needs the NMOS compatibility code.
+        # directory. A MOS PCell from that tree still needs the compatibility code.
         library_path = source if (source / "cells" / "__init__.py").is_file() else None
-        legacy_sky130 = pcell.name == "nfet" and (
+        legacy_sky130 = pcell.name in MOS_PCELL_NAMES and (
             is_sky130a(self.pdk_root.name)
             or source.is_relative_to(self.pdk_root / SKY130_PYTHON_PATH)
         )

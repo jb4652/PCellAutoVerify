@@ -27,6 +27,9 @@ if {[catch {
 
     if {$extraction_mode eq "lvs"} {
         ext2spice lvs
+        ext2spice subcircuits top on
+        # Preserve internal well connections when Netgen compares a flat reference.
+        ext2spice hierarchy off
     } else {
         extresist extout on
         extresist lumped on
@@ -41,8 +44,8 @@ if {[catch {
         ext2spice cthresh 0
         ext2spice rthresh 0
         ext2spice extresist on
+        ext2spice hierarchy on
     }
-    ext2spice hierarchy on
     file mkdir [file dirname $spice_file]
     ext2spice -o $spice_file
     if {![file isfile $spice_file] || [file size $spice_file] == 0} {

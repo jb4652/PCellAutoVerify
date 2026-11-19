@@ -1,4 +1,4 @@
-"""Sky130A NMOS reference generation, LVS comparison, and RCX summaries."""
+"""Sky130A MOS reference generation, LVS comparison, and RCX summaries."""
 
 import json
 import math
@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 from .magic_drc import run_sky130_magic
 from .models import GeneratedLayout
+from .sky130_nmos import MOS_PCELL_NAMES
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +49,7 @@ def _reference_spice(top: str, model: str, values: dict) -> str:
     if not fingers.is_integer():
         raise ValueError("Reference requires an integer finger count")
     if values.get("bulk") not in (None, "None") or values.get("interdig"):
-        raise ValueError("Automatic LVS reference supports NFET without a bulk tie, guard ring, or interdigitation")
+        raise ValueError("Automatic LVS reference supports MOS PCells without a bulk tie, guard ring, or interdigitation")
 
     # Plain multi-finger PCells share adjacent diffusion and expose independent gates.
     devices = [
@@ -58,7 +59,7 @@ def _reference_spice(top: str, model: str, values: dict) -> str:
     return "\n".join(["* Reference from effective PCell parameters", f".subckt {top}", *devices, f".ends {top}", ""])
 
 
-def _compare_lvs(directory: Path, setup: Path, top: str) -> tuple[str, str]:
+def _compare_lvs(directory: Path, setup: Path, top: str, prefix: str = "nmos") -> tuple[str, str]:
     executable = shutil.which("netgen-lvs")
     if not executable:
         return "ERROR", "netgen-lvs executable not found"
@@ -67,14 +68,17 @@ def _compare_lvs(directory: Path, setup: Path, top: str) -> tuple[str, str]:
 
     # Netgen parses "filename cell" as a Tcl list. Local basenames also work
     # when the parent directory or PDK path contains whitespace.
+    extracted = f"{prefix}_extracted.spice"
+    reference = f"{prefix}_reference.spice"
+    log = f"{prefix}_lvs.log"
     with TemporaryDirectory(prefix="netgen-", dir=directory) as scratch_dir:
         scratch = Path(scratch_dir)
-        for name in ("nmos_extracted.spice", "nmos_reference.spice"):
+        for name in (extracted, reference):
             shutil.copyfile(directory / name, scratch / name)
         try:
             completed = subprocess.run(
-                [executable, "-batch", "lvs", f"nmos_extracted.spice {top}",
-                 f"nmos_reference.spice {top}", str(setup), "nmos_lvs.log"],
+                [executable, "-batch", "lvs", f"{extracted} {top}",
+                 f"{reference} {top}", str(setup), log],
                 cwd=scratch, capture_output=True, text=True, errors="replace", timeout=300,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -82,7 +86,7 @@ def _compare_lvs(directory: Path, setup: Path, top: str) -> tuple[str, str]:
 
         console = completed.stdout + "\n" + completed.stderr
         (directory / "netgen.log").write_text(console, encoding="utf-8")
-        report = scratch / "nmos_lvs.log"
+        report = scratch / log
         if completed.returncode or not report.is_file():
             return "ERROR", f"Netgen did not produce an LVS report\n{console.strip()[-1600:]}"
         content = report.read_text(encoding="utf-8", errors="replace")
@@ -112,7 +116,7 @@ def summarize_rcx(spice: Path, model: str) -> tuple[str, str]:
     return counts.status, counts.describe()
 
 
-def run_nmos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> ExtractionResult:
+def run_mos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> ExtractionResult:
     layout = Path(point.layout_path)
     directory = layout.parent / mode / layout.stem
     try:
@@ -121,16 +125,20 @@ def run_nmos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> Ex
         data = json.loads(layout.with_suffix(".json").read_text(encoding="utf-8"))
         values = data["actual"]
         model = values["type"]
-        if data.get("pcell") != "nfet" or not isinstance(model, str) or not re.fullmatch(r"sky130_fd_pr__nfet_\w+", model):
-            raise ValueError("Expected Sky130A nfet metadata with a valid SPICE model")
+        name = data.get("pcell")
+        if name not in MOS_PCELL_NAMES or not isinstance(model, str) or not re.fullmatch(
+            rf"sky130_fd_pr__{name}_\w+", model,
+        ):
+            raise ValueError("Expected Sky130A nfet or pfet metadata with a matching SPICE model")
+        prefix = "nmos" if name == "nfet" else "pmos"
         top = "VERIFY_TOP"
         directory.mkdir(parents=True, exist_ok=True)
         if mode == "lvs":
             reference = _reference_spice(top, model, values)
-            (directory / "nmos_reference.spice").write_text(reference, encoding="utf-8")
-            spice = directory / "nmos_extracted.spice"
+            (directory / f"{prefix}_reference.spice").write_text(reference, encoding="utf-8")
+            spice = directory / f"{prefix}_extracted.spice"
         else:
-            spice = directory / "nmos_rcx.spice"
+            spice = directory / f"{prefix}_rcx.spice"
 
         error = run_sky130_magic(
             pdk_root, layout, top, f"extract_nmos_{mode}.tcl", spice, directory / "magic.log",
@@ -139,7 +147,7 @@ def run_nmos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> Ex
             return ExtractionResult(point.index, "ERROR", error, error.splitlines()[0])
         if mode == "lvs":
             setup = pdk_root / "libs.tech/netgen/sky130A_setup.tcl"
-            status, details = _compare_lvs(directory, setup, top)
+            status, details = _compare_lvs(directory, setup, top, prefix)
             if status == "PASS":
                 summary = "Circuits match uniquely"
             elif status == "ERROR":
@@ -158,3 +166,7 @@ def run_nmos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> Ex
         )
     except (OSError, ValueError, KeyError, TypeError) as error:
         return ExtractionResult(point.index, "ERROR", str(error), str(error))
+
+
+# Preserve the original entry point for standalone callers.
+run_nmos_extraction = run_mos_extraction
