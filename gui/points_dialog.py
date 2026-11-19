@@ -4,15 +4,16 @@ import shutil
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QDesktopServices, QPixmap, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QGraphicsScene,
+    QGraphicsView,
     QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -20,6 +21,41 @@ from PySide6.QtWidgets import (
 
 from core import PCell
 from core.models import GeneratedLayout
+
+
+class LayoutPreviewView(QGraphicsView):
+    def __init__(self, pixmap: QPixmap, parent=None) -> None:
+        super().__init__(parent)
+        scene = QGraphicsScene(self)
+        item = scene.addPixmap(pixmap)
+        item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        self._image_rect = item.boundingRect()
+        margin = max(pixmap.width(), pixmap.height())
+        scene.setSceneRect(self._image_rect.adjusted(-margin, -margin, margin, margin))
+        self.setScene(scene)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._fit_scale = 0.0
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if not self._fit_scale:
+            self.fitInView(self._image_rect, Qt.AspectRatioMode.KeepAspectRatio)
+            self._fit_scale = self.transform().m11()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if delta and self._fit_scale:
+            current = self.transform().m11()
+            factor = 1.2 ** (max(-1200, min(1200, delta)) / 120)
+            target = max(self._fit_scale / 2, min(current * factor, self._fit_scale * 16))
+            cursor = event.position().toPoint()
+            anchor = self.mapToScene(cursor)
+            self.scale(target / current, target / current)
+            offset = anchor - self.mapToScene(cursor)
+            self.centerOn(self.mapToScene(self.viewport().rect().center()) + offset)
+        event.accept()
 
 
 class TestPointsDialog(QDialog):
@@ -104,13 +140,7 @@ class TestPointsDialog(QDialog):
         dialog.setWindowTitle("Layout Preview")
         dialog.resize(900, 650)
         layout = QVBoxLayout(dialog)
-        image = QLabel()
-        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        image.setPixmap(pixmap)
-        scroll = QScrollArea()
-        scroll.setWidget(image)
-        scroll.setWidgetResizable(True)
-        layout.addWidget(scroll)
+        layout.addWidget(LayoutPreviewView(pixmap, dialog))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
