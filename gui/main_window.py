@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QGroupBox,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -72,6 +73,14 @@ class MainWindow(QMainWindow):
             "QToolBar { spacing: 6px; padding: 5px; }"
             "QPushButton { min-height: 26px; padding: 2px 10px; }"
             "QHeaderView::section { font-weight: 600; padding: 6px; }"
+            'QGroupBox[workflowGroup="true"] {'
+            "  border: 1px solid palette(mid); border-radius: 6px;"
+            "  margin-top: 11px; font-weight: 600;"
+            "}"
+            'QGroupBox[workflowGroup="true"]::title {'
+            "  subcontrol-origin: margin; subcontrol-position: top left;"
+            "  left: 10px; padding: 0 4px;"
+            "}"
         )
         toolbar = QToolBar("Verification tools")
         toolbar.setObjectName("verificationToolbar")
@@ -173,36 +182,34 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.cells)
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        header = QHBoxLayout()
+        right_layout.setSpacing(8)
         self.parameter_title = QLabel("Select a PCell to configure parameters")
         right_layout.addWidget(self.parameter_title)
         self.generate_button = QPushButton("Automatic Test Points Generation")
         self.generate_button.setEnabled(False)
         self.generate_button.clicked.connect(self.generate_points)
-        header.addWidget(self.generate_button)
         self.manual_generate_button = QPushButton("Manual Test Points Generation")
         self.manual_generate_button.setEnabled(False)
         self.manual_generate_button.clicked.connect(self.generate_manual_point)
-        header.addWidget(self.manual_generate_button)
         self.view_button = QPushButton("View Test Points")
         self.view_button.setEnabled(False)
         self.view_button.clicked.connect(self.view_points)
-        header.addWidget(self.view_button)
-        header.addStretch()
-        right_layout.addLayout(header)
+        right_layout.addWidget(self._button_group(
+            "Test Points", self.generate_button, self.manual_generate_button, self.view_button,
+        ))
         checks = QHBoxLayout()
+        checks.setSpacing(8)
         self.verify_button = QPushButton("DRC")
         self.verify_button.setEnabled(False)
         self.verify_button.setToolTip(
             "Run DRC on the generated GDS files"
         )
         self.verify_button.clicked.connect(self.verify)
-        checks.addWidget(self.verify_button)
         self.results_button = QPushButton("DRC Results")
         self.results_button.setEnabled(False)
         self.results_button.setToolTip("View DRC results and the PDF summary")
         self.results_button.clicked.connect(self.view_results)
-        checks.addWidget(self.results_button)
+        checks.addWidget(self._button_group("DRC", self.verify_button, self.results_button), 1)
         self.extraction_buttons = {}
         for mode in ("lvs", "rcx"):
             run_button = QPushButton(mode.upper())
@@ -212,10 +219,8 @@ class MainWindow(QMainWindow):
             results_button = QPushButton(f"{mode.upper()} Results")
             results_button.setObjectName(f"{mode}ResultsButton")
             results_button.clicked.connect(lambda checked=False, mode=mode: self.view_extraction(mode))
-            checks.addWidget(run_button)
-            checks.addWidget(results_button)
+            checks.addWidget(self._button_group(mode.upper(), run_button, results_button), 1)
             self.extraction_buttons[mode] = run_button, results_button
-        checks.addStretch()
         right_layout.addLayout(checks)
         range_help = QLabel(
             "Defaults and Range / Choices are editable. Use min=…, max=…; "
@@ -248,6 +253,17 @@ class MainWindow(QMainWindow):
         content_splitter.setSizes([520, 180])
         self.setCentralWidget(content_splitter)
         self.reload()
+
+    @staticmethod
+    def _button_group(title: str, *buttons: QPushButton) -> QGroupBox:
+        group = QGroupBox(title)
+        group.setProperty("workflowGroup", True)
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(10, 12, 10, 8)
+        layout.setSpacing(8)
+        for button in buttons:
+            layout.addWidget(button, 1)
+        return group
 
     def _sync_actions(self) -> None:
         self.generate_action.setEnabled(self.generate_button.isEnabled())
