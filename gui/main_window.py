@@ -26,10 +26,10 @@ from core import (
     KLayoutVerifier,
     PCell,
     VerificationResult,
-    generate_test_points,
     inferred_range,
 )
 from core.sky130_library import is_sky130a
+from core.test_points import default_test_point
 from database import PDKDatabase
 from plugins import PluginRegistry
 
@@ -302,7 +302,7 @@ class MainWindow(QMainWindow):
         cell = self.current_cells[row]
         self.parameter_title.setText(f"Parameters — {cell.name}")
         parameters = cell.parameters
-        self.generate_button.setEnabled(bool(parameters))
+        self.generate_button.setEnabled(True)
         self.parameters.blockSignals(True)
         self.parameters.setRowCount(len(parameters))
         for index, parameter in enumerate(parameters):
@@ -340,7 +340,7 @@ class MainWindow(QMainWindow):
         row = self._selected_cell_index()
         if row < 0 or row >= len(self.current_cells):
             return
-        points = generate_test_points(self.current_cells[row])
+        points = [default_test_point(self.current_cells[row])]
         self.test_points[row] = points
         self.verification_results.pop(row, None)
         self.view_button.setEnabled(bool(points))
@@ -387,6 +387,8 @@ class MainWindow(QMainWindow):
                 f"  #{result.index}: "
                 f"{'PASS' if result.passed else 'FAIL'} — {result.message}"
             )
+            if result.layout_path:
+                self.write_output(f"       GDS: {result.layout_path}")
         self.statusBar().showMessage(f"DRC complete: {passed} passed, {failed} failed")
         self.results_button.setEnabled(bool(results))
         self.verify_button.setEnabled(True)

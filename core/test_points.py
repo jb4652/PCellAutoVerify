@@ -90,6 +90,15 @@ def parameter_values(parameter: Parameter) -> list[str]:
     return result
 
 
+def default_test_point(pcell: PCell) -> dict[str, str]:
+    """Use the current editable defaults and leave unresolved values to KLayout."""
+    return {
+        parameter.name: parameter.default
+        for parameter in pcell.parameters
+        if not (parameter.hidden or parameter.readonly) and parameter.default.strip()
+    }
+
+
 def generate_test_points(pcell: PCell, limit: int = 200) -> list[dict[str, str]]:
     """Generate a deterministic Cartesian matrix from parameter boundaries."""
     if limit <= 0 or not pcell.parameters:

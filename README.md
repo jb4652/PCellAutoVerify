@@ -25,9 +25,21 @@ Nplus、接触孔及源漏 Metal1 的 NMOS 版图，可用于第一次生成测�
 自带 DRC，再从 **DRC Results → Open Layout** 打开版图查看。示例还包含可正常生成
 版图、但预期无法通过 DRC 的 0.2 µm 栅长边界，用于检查失败结果流程。
 
-激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。`sky130A` 的注册名称直接列在根节点下，名称后的括号显示源码文件名，悬停可查看完整路径。右侧保留 KLayout 声明的完整参数列表，隐藏和只读参数仅供查看。选择 PCell 后，右侧的 **Default** 和 **Range / Choices** 均可直接编辑；后者支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。因此，当静态扫描无法解析 PDK 源码中的动态默认值时，可以在生成测试点前手工填写正确的数值。未填写的未知默认值不会再以空字符串传给 KLayout，而是从参数字典中省略，让 PCell 使用自身的运行时默认值。扫描器会为源码中没有约束的参数根据已解析默认值补充一组保守的布尔、整数或浮点候选值。点击 **Generate Test Points** 只会取每个参数候选范围的首、尾边界值并进行组合，从而减少需要 DRC 的组数；组合超过 200 条时仍会均匀抽样为 200 条。生成结果可通过 **View Test Points** 查看。
+激活 PDK 后，左侧会以 PDK 名称为根节点，按 PCell 在 PDK 内的实际源码路径展示默认全部展开的树状结构。`sky130A` 的注册名称直接列在根节点下，名称后的括号显示源码文件名，悬停可查看完整路径。右侧保留 KLayout 声明的完整参数列表，隐藏和只读参数仅供查看。选择 PCell 后，右侧的 **Default** 和 **Range / Choices** 均可直接编辑；后者支持 `min=1, max=10`、`choices=['A', 'B']` 或 `1..10`。因此，当静态扫描无法解析 PDK 源码中的动态默认值时，可以在生成测试点前手工填写正确的数值。未填写的未知默认值不会再以空字符串传给 KLayout，而是从参数字典中省略，让 PCell 使用自身的运行时默认值。扫描器会为源码中没有约束的参数根据已解析默认值补充一组保守的布尔、整数或浮点候选值。点击 **Generate Test Points** 会读取右侧当前默认值生成一组测试点。可在 **View Test Points** 中查看，修改默认值后可重新生成。未设置的参数由 KLayout 使用库默认值，隐藏或只读参数不参与配置。
 
-**Verify** 会通过应用自身的 Python 解释器和 `klayout` Python 包实例化每一个测试点，使 PCell 可以使用应用环境中已安装的 NumPy 等二进制依赖；随后查找当前 PDK 中的第一个 `*.lydrc`（其次是 `*.drc`）规则文件并用 KLayout 执行 DRC。对于 GF180 这类由 `run_drc.py` 启动的宏，会直接执行其独立 DRC 规则文件，避免 KLayout 的嵌入式 Python 还需单独安装 `docopt`。程序会同时传入规则文件常见的 `topcell`、`cell_name` 和 `cell` 顶层单元参数。底部 **Output** 显示逐条 PASS/FAIL 及汇总；完成后右上角 **DRC Results** 按钮可查看所有参数和错误信息，点击 **Open Layout** 可在 KLayout 中检查对应的通过或未通过版图。若未安装 `klayout`、PCell 无法实例化或 PDK 中没有规则文件，测试会明确标为失败而不会误报通过。
+**Verify** 会通过应用自身的 Python 解释器和 `klayout` Python 包实例化每一个测试点，使 PCell 可以使用应用环境中已安装的 NumPy 等二进制依赖；随后查找当前 PDK 中的第一个 `*.lydrc`（其次是 `*.drc`）规则文件并用 KLayout 执行 DRC。对于 GF180 这类由 `run_drc.py` 启动的宏，会直接执行其独立 DRC 规则文件，避免 KLayout 的嵌入式 Python 还需单独安装 `docopt`。程序会同时传入规则文件常见的 `topcell`、`cell_name` 和 `cell` 顶层单元参数。底部 **Output** 显示逐条 PASS/FAIL 及汇总；完成后右上角 **DRC Results** 按钮可查看所有参数和错误信息，点击 **Open Layout** 可在 KLayout 中检查对应的通过或未通过版图。若无法完成 DRC，结果会显示具体原因。
+
+## 生成 Sky130A NMOS
+
+启动应用并激活已导入的 `sky130A` 后，选择 `nfet`，依次点击 **Generate Test Points** 和 **Run Verify**。每次运行会在 `output/verification/run-*/` 保存 GDS、实际生效的参数 JSON，以及规则执行时生成的 DRC 报告。缺少 KLayout 命令行工具或规则文件时，仍会尝试生成 GDS，并说明 DRC 未运行。
+
+从工程根目录也可以单独生成 GDS：
+
+```bash
+python scripts/generate_sky130_nmos.py --pdk "$SKY130_KLAYOUT" --w 0.42 --l 0.15 --nf 1 --output output/nmos.gds
+```
+
+`SKY130_KLAYOUT` 指向 `sky130A/libs.tech/klayout`。脚本和应用共用 Sky130A 的兼容处理，参数配置位于 `config/sky130_nmos.json`。请使用已安装兼容版本 `gdsfactory` 和 `kfactory` 的 Python 环境。命令同时写出 `output/nmos.json`，记录请求值和实例化后的实际参数。`--m` 只记录到 JSON。
 
 ## 开发
 

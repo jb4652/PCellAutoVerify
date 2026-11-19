@@ -86,8 +86,8 @@ def test_pcell_tree_follows_source_path_and_verify_emits(tmp_path: Path, monkeyp
     window.verify()
 
     assert requested[0][0].name == "NfetPCell"
-    assert len(requested[0][1]) == 2
-    assert "2 passed, 0 failed" in window.output.toPlainText()
+    assert requested[0][1] == [{"w": "1.5"}]
+    assert "1 passed, 0 failed" in window.output.toPlainText()
 
     window.close()
     database.close()
@@ -172,7 +172,7 @@ class sky130(kdb.Library):
             assert window.parameters.item(row, 0).text() == name
             assert not window.parameters.item(row, 1).flags() & Qt.ItemFlag.ItemIsEditable
         window.generate_points()
-        assert all(set(point) == {"width", "length"} for point in window.test_points[0])
+        assert window.test_points[0] == [{"width": "0.6", "length": "1.0"}]
     finally:
         window.close()
         database.close()

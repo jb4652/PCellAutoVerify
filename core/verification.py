@@ -44,12 +44,18 @@ source_path = os.path.abspath(source)
 layout = pya.Layout()
 values = json.loads(parameters)
 library_path = os.environ.get("PCELL_VERIFY_LIBRARY")
+metadata = None
 if library_path:
     from pathlib import Path
     from core.sky130_library import load_library
 
-    library = load_library(Path(library_path))
-    cell = layout.create_cell(class_name, library.name(), values)
+    if class_name == "nfet":
+        from core.sky130_nmos import instantiate_nmos, write_metadata
+
+        cell, metadata = instantiate_nmos(layout, Path(library_path), values)
+    else:
+        library = load_library(Path(library_path))
+        cell = layout.create_cell(class_name, library.name(), values)
 else:
     package_parts = []
     package_dir = os.path.dirname(source_path)
@@ -89,6 +95,8 @@ if error_messages:
 top = layout.create_cell("VERIFY_TOP")
 top.insert(pya.CellInstArray(cell.cell_index(), pya.Trans()))
 layout.write(output)
+if metadata is not None:
+    write_metadata(Path(output), metadata)
 if preview:
     try:
         view = pya.LayoutView()
@@ -107,10 +115,13 @@ class KLayoutVerifier:
     """Generate every layout and run the first DRC deck found in the PDK."""
 
     def __init__(self, pdk_root: str, output_root: str | None = None):
-        self.pdk_root = Path(pdk_root)
-        self.output_root = Path(output_root) if output_root else Path(
-            tempfile.mkdtemp(prefix="pcell-verify-")
-        )
+        self.pdk_root = Path(pdk_root).expanduser().resolve()
+        if output_root:
+            self.output_root = Path(output_root).expanduser().resolve()
+        else:
+            base = Path("output/verification").resolve()
+            base.mkdir(parents=True, exist_ok=True)
+            self.output_root = Path(tempfile.mkdtemp(prefix="run-", dir=base))
 
     def _deck(self) -> Path | None:
         decks = sorted(self.pdk_root.rglob("*.lydrc"))
@@ -194,8 +205,6 @@ class KLayoutVerifier:
 
     def verify(self, pcell: PCell, points: list[dict[str, str]]) -> list[VerificationResult]:
         executable = shutil.which("klayout")
-        if not executable:
-            return [VerificationResult(i + 1, point, False, "KLayout executable not found") for i, point in enumerate(points)]
         source = self.pdk_root / pcell.source
         library_path = self.pdk_root / pcell.library_path if pcell.library_path else None
         # Earlier Sky130A imports stored the library directory as the source.
@@ -231,9 +240,13 @@ class KLayoutVerifier:
                 message = (generated.stderr or generated.stdout or "PCell generation failed").strip()
                 results.append(VerificationResult(index, point, False, message[-1000:]))
                 continue
-            if deck is None:
+            if not executable or deck is None:
+                reason = (
+                    "KLayout executable not found" if not executable
+                    else "No KLayout DRC deck (*.lydrc or *.drc) found"
+                )
                 results.append(VerificationResult(
-                    index, point, False, "No KLayout DRC deck (*.lydrc or *.drc) found",
+                    index, point, False, reason,
                     str(layout), str(preview) if preview.exists() else "",
                 ))
                 continue

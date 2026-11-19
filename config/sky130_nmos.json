@@ -1,0 +1,8 @@
+{
+  "type": "sky130_fd_pr__nfet_01v8",
+  "w": 0.42,
+  "l": 0.15,
+  "nf": 1,
+  "bulk": "None",
+  "gate_con_pos": "top"
+}

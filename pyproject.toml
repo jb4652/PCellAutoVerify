@@ -19,7 +19,10 @@ pcell-auto-verify = "core.application:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "database*", "gui*", "plugins*"]
+include = ["core*", "database*", "gui*", "plugins*", "config"]
+
+[tool.setuptools.package-data]
+config = ["sky130_nmos.json"]
 
 [tool.setuptools]
 py-modules = ["main"]
