@@ -29,6 +29,7 @@ from core import (
     inferred_range,
 )
 from core.models import GeneratedLayout
+from core.nmos_extraction import ExtractionResult, run_nmos_extraction
 from core.sky130_library import is_sky130a
 from core.test_points import default_test_point
 from database import PDKDatabase
@@ -36,7 +37,7 @@ from plugins import PluginRegistry
 
 from .pdk_manager import PDKManagerDialog
 from .points_dialog import TestPointsDialog
-from .results_dialog import VerificationResultsDialog
+from .results_dialog import ExtractionResultsDialog, VerificationResultsDialog
 
 
 class MainWindow(QMainWindow):
@@ -51,7 +52,9 @@ class MainWindow(QMainWindow):
         self.current_cells: list[PCell] = []
         self.test_points: dict[int, list[GeneratedLayout]] = {}
         self.verification_results: dict[int, list[VerificationResult]] = {}
+        self.extraction_results: dict[tuple[int, str], list[ExtractionResult]] = {}
         self.active_pdk_path = ""
+        self.active_sky130a = False
         self.setWindowTitle("PCell Auto Verify")
         self.resize(1100, 700)
 
@@ -165,19 +168,34 @@ class MainWindow(QMainWindow):
         self.view_button.setEnabled(False)
         self.view_button.clicked.connect(self.view_points)
         header.addWidget(self.view_button)
+        right_layout.addLayout(header)
+        checks = QHBoxLayout()
         self.verify_button = QPushButton("DRC")
         self.verify_button.setEnabled(False)
         self.verify_button.setToolTip(
             "Run DRC on the generated GDS files"
         )
         self.verify_button.clicked.connect(self.verify)
-        header.addWidget(self.verify_button)
+        checks.addWidget(self.verify_button)
         self.results_button = QPushButton("DRC Results")
         self.results_button.setEnabled(False)
         self.results_button.setToolTip("View DRC results and the PDF summary")
         self.results_button.clicked.connect(self.view_results)
-        header.addWidget(self.results_button)
-        right_layout.addLayout(header)
+        checks.addWidget(self.results_button)
+        self.extraction_buttons = {}
+        for mode in ("lvs", "rcx"):
+            run_button = QPushButton(mode.upper())
+            run_button.setObjectName(f"{mode}Button")
+            run_button.setToolTip("Run on generated Sky130A NFET GDS")
+            run_button.clicked.connect(lambda checked=False, mode=mode: self.run_extraction(mode))
+            results_button = QPushButton(f"{mode.upper()} Results")
+            results_button.setObjectName(f"{mode}ResultsButton")
+            results_button.clicked.connect(lambda checked=False, mode=mode: self.view_extraction(mode))
+            checks.addWidget(run_button)
+            checks.addWidget(results_button)
+            self.extraction_buttons[mode] = run_button, results_button
+        checks.addStretch()
+        right_layout.addLayout(checks)
         range_help = QLabel(
             "Defaults and Range / Choices are editable. Use min=…, max=…; "
             "choices=[…]; or low..high. A blank, unresolved default is omitted "
@@ -211,6 +229,15 @@ class MainWindow(QMainWindow):
         self.view_points_action.setEnabled(self.view_button.isEnabled())
         self.verify_action.setEnabled(self.verify_button.isEnabled())
         self.results_action.setEnabled(self.results_button.isEnabled())
+        row = self._selected_cell_index()
+        can_extract = (
+            self.active_sky130a and 0 <= row < len(self.current_cells)
+            and self.current_cells[row].name == "nfet"
+            and any(point.layout_path for point in self.test_points.get(row, []))
+        )
+        for mode, (run_button, results_button) in self.extraction_buttons.items():
+            run_button.setEnabled(can_extract)
+            results_button.setEnabled((row, mode) in self.extraction_results)
 
     def open_manager(self) -> None:
         dialog = PDKManagerDialog(self.database, self.registry, self)
@@ -223,7 +250,9 @@ class MainWindow(QMainWindow):
         self.current_cells = []
         self.test_points.clear()
         self.verification_results.clear()
+        self.extraction_results.clear()
         self.active_pdk_path = ""
+        self.active_sky130a = False
         self.generate_button.setEnabled(False)
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
@@ -241,6 +270,7 @@ class MainWindow(QMainWindow):
         )
         if active:
             self.active_pdk_path = active.path
+            self.active_sky130a = is_sky130a(active.name)
             self.current_cells = active.pcells
             root = QTreeWidgetItem([active.name])
             root.setData(0, Qt.ItemDataRole.UserRole, None)
@@ -332,6 +362,8 @@ class MainWindow(QMainWindow):
             parameter.value_range = item.text()
         self.test_points.pop(row, None)
         self.verification_results.pop(row, None)
+        for mode in self.extraction_buttons:
+            self.extraction_results.pop((row, mode), None)
         self.view_button.setEnabled(False)
         self.verify_button.setEnabled(False)
         self.results_button.setEnabled(False)
@@ -344,6 +376,8 @@ class MainWindow(QMainWindow):
         cell = self.current_cells[row]
         points = [default_test_point(cell)]
         self.verification_results.pop(row, None)
+        for mode in self.extraction_buttons:
+            self.extraction_results.pop((row, mode), None)
         try:
             layouts = KLayoutVerifier(self.active_pdk_path).generate_layouts(cell, points)
         except OSError as error:
@@ -415,6 +449,29 @@ class MainWindow(QMainWindow):
         results = self.verification_results.get(row, [])
         if 0 <= row < len(self.current_cells) and results:
             VerificationResultsDialog(self.current_cells[row], results, self).exec()
+
+    def run_extraction(self, mode: str) -> None:
+        row = self._selected_cell_index()
+        run_button, _ = self.extraction_buttons[mode]
+        if not run_button.isEnabled():
+            return
+        run_button.setEnabled(False)
+        label = mode.upper()
+        self.write_output(f"Running {label} for '{self.current_cells[row].name}' …")
+        results = [
+            run_nmos_extraction(Path(self.active_pdk_path).resolve(), point, mode)
+            for point in self.test_points[row]
+        ]
+        self.extraction_results[row, mode] = results
+        for result in results:
+            self.write_output(f"  #{result.index}: {label} {result.status}")
+        self._sync_actions()
+
+    def view_extraction(self, mode: str) -> None:
+        row = self._selected_cell_index()
+        results = self.extraction_results.get((row, mode))
+        if results:
+            ExtractionResultsDialog(mode.upper(), results, self).exec()
 
     def write_output(self, message: str) -> None:
         """将生成或验证消息追加到主窗口输出区。"""

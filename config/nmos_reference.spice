@@ -1,0 +1,4 @@
+* Sky130A default NFET reference for scripts/generate_sky130_nmos.py
+.subckt NMOS_TOP
+X0 D G S B sky130_fd_pr__nfet_01v8 w=0.42 l=0.15
+.ends NMOS_TOP

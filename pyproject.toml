@@ -22,8 +22,8 @@ where = ["."]
 include = ["core*", "database*", "gui*", "plugins*", "config", "scripts"]
 
 [tool.setuptools.package-data]
-config = ["sky130_nmos.json", "sky130A.magicrc"]
-scripts = ["run_nmos_drc.tcl"]
+config = ["sky130_nmos.json", "sky130A.magicrc", "nmos_reference.spice"]
+scripts = ["*.tcl"]
 
 [tool.setuptools]
 py-modules = ["main"]

@@ -49,6 +49,25 @@ magic -dnull -noconsole -rcfile "$PDK_ROOT/sky130A/libs.tech/magic/sky130A.magic
 
 脚本默认读取顶层单元 `NMOS_TOP`，将报告写到 `output/nmos_drc.txt`。
 
+## Sky130A NFET 的 LVS 和 RCX
+
+生成 `nfet` 测试点和 GDS 后，点击 **LVS** 或 **RCX**。两项检查都使用已有版图，可以独立运行。
+
+- **LVS** 用 Magic 生成提取网表，并按该测试点实际生效的型号、宽度、长度和指数量生成独立参考网表。随后调用 `netgen-lvs`，使用导入 PDK 的 `libs.tech/netgen/sky130A_setup.tcl` 比较。**LVS Results** 显示比对和属性差异。自动参考支持普通单指和多指 NFET，要求无体端接触、保护环和交错指。
+- **RCX** 用 Magic 提取寄生电容和电阻。**RCX Results** 显示预期型号、MOS 实例数和 R/C 元件数。`PASS_BASIC` 表示提取网表中找到了预期型号，R 或 C 的数量可以为零。
+
+请确保 `magic` 和 `netgen-lvs` 已在 `PATH` 中。生成的 SPICE 和日志保存在本次 GDS 所在目录的 `lvs/<版图名>/` 和 `rcx/<版图名>/` 下。
+
+若要从工程根目录检查默认的 `output/nmos.gds`，使用前面同样的 `PDK_ROOT`：
+
+```bash
+rcfile="$PDK_ROOT/sky130A/libs.tech/magic/sky130A.magicrc"
+magic -dnull -noconsole -rcfile "$rcfile" scripts/extract_nmos_lvs.tcl
+netgen-lvs -batch lvs "output/lvs/nmos_extracted.spice NMOS_TOP" "config/nmos_reference.spice NMOS_TOP" "$PDK_ROOT/sky130A/libs.tech/netgen/sky130A_setup.tcl" "output/lvs/nmos_lvs.log"
+magic -dnull -noconsole -rcfile "$rcfile" scripts/extract_nmos_rcx.tcl
+python scripts/check_nmos_rcx.py
+```
+
 ## 开发
 
 ```bash

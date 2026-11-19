@@ -6,6 +6,9 @@ foreach {key variable} {
     PCELL_DRC_GDS gds_path
     PCELL_DRC_TOP top_cell
     PCELL_DRC_REPORT report_path
+    PCELL_MAGIC_GDS gds_path
+    PCELL_MAGIC_TOP top_cell
+    PCELL_MAGIC_OUTPUT report_path
 } {
     if {[info exists env($key)]} {set $variable $env($key)}
 }

@@ -10,11 +10,12 @@ from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QMessageBox, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout,
 )
 
 from core import PCell, VerificationResult
+from core.nmos_extraction import ExtractionResult
 
 
 class VerificationResultsDialog(QDialog):
@@ -149,3 +150,21 @@ class PdfReportDialog(QDialog):
             shutil.copyfile(self.report_path, destination_path)
         except OSError as error:
             QMessageBox.warning(self, "Save PDF", f"Unable to save the report:\n{error}")
+
+
+class ExtractionResultsDialog(QDialog):
+    def __init__(self, title: str, results: list[ExtractionResult], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{title} Results")
+        self.resize(850, 560)
+        layout = QVBoxLayout(self)
+        report = QPlainTextEdit()
+        report.setReadOnly(True)
+        report.setPlainText("\n\n".join(
+            f"Test point {result.index} · {result.status}\n{result.details}".rstrip()
+            for result in results
+        ))
+        layout.addWidget(report)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
