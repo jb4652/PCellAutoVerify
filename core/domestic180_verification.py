@@ -11,6 +11,7 @@ from pdks.domestic180.pcells import CONTACT, GATE, METAL, N_ACTIVE, N_BODY, PIN,
 
 from .models import GeneratedLayout
 from .nmos_extraction import ExtractionResult, RcxCounts
+from .process_console import write_process_console
 
 
 def is_domestic180(root: Path) -> bool:
@@ -62,6 +63,7 @@ class Domestic180Layout:
 
 
 def check_drc(root: Path, path: Path) -> tuple[bool, str]:
+    write_process_console(f"[domestic180 DRC · KLayout Python]\nGDS: {path}\nRules: {root / 'pdk.json'}")
     try:
         rules = json.loads((root / "pdk.json").read_text(encoding="utf-8"))
         geometry = Domestic180Layout(path)
@@ -84,9 +86,15 @@ def check_drc(root: Path, path: Path) -> tuple[bool, str]:
         summary = "; ".join(failures) if failures else "All domestic180 geometry checks passed"
         report = path.with_name(f"{path.stem}_drc.txt")
         report.write_text(summary + "\n", encoding="utf-8")
+        write_process_console(
+            "\n".join(f"{name}: {count}" for name, count in checks.items())
+            + f"\nResult: {'FAIL' if failures else 'PASS'}\nReport: {report}"
+        )
         return not failures, f"{summary} · {report}"
     except (OSError, ValueError, KeyError, RuntimeError) as error:
-        return False, f"domestic180 DRC could not complete: {error}"
+        message = f"domestic180 DRC could not complete: {error}"
+        write_process_console(message)
+        return False, message
 
 
 def _extract(geometry: Domestic180Layout) -> tuple[list[Device], dict]:
@@ -160,6 +168,10 @@ def _spice(devices: list[Device], ports: Iterable[str], parasitics: Sequence[str
 
 
 def run_extraction(root: Path, point: GeneratedLayout, mode: str) -> ExtractionResult:
+    write_process_console(
+        f"[domestic180 {mode.upper()} · KLayout Python]\n"
+        f"Test point: {point.index}\nGDS: {point.layout_path or '(unavailable)'}"
+    )
     try:
         if not point.layout_path:
             raise ValueError(point.message)
@@ -176,7 +188,9 @@ def run_extraction(root: Path, point: GeneratedLayout, mode: str) -> ExtractionR
             summary = "Geometry, ports and connectivity match" if passed else "Extracted circuit differs from reference"
             details = f"{summary}\n\nExtracted:\n{_spice(devices, nets)}\nReference:\n{_spice(reference, ports)}"
             (directory / "lvs.txt").write_text(details, encoding="utf-8")
-            return ExtractionResult(point.index, "PASS" if passed else "FAIL", f"{details}\nFiles: {directory}", summary)
+            status = "PASS" if passed else "FAIL"
+            write_process_console(f"Result: {status}\n{details}\nFiles: {directory}")
+            return ExtractionResult(point.index, status, f"{details}\nFiles: {directory}", summary)
 
         rules = json.loads((root / "pdk.json").read_text(encoding="utf-8"))
         # Lumped estimates: one pin lead resistor and one area capacitance per named net.
@@ -198,8 +212,12 @@ def run_extraction(root: Path, point: GeneratedLayout, mode: str) -> ExtractionR
         )
         summary = "Geometry-based lumped RC estimates"
         details = f"{summary} from Metal1 area and perimeter.\n{counts.describe()}\nFiles: {directory}"
+        write_process_console(f"Result: {counts.status}\n{details}")
         return ExtractionResult(point.index, counts.status, details, summary, counts)
     except ConnectivityError as error:
-        return ExtractionResult(point.index, "FAIL" if mode == "lvs" else "ERROR", str(error), str(error))
+        status = "FAIL" if mode == "lvs" else "ERROR"
+        write_process_console(f"Result: {status}\n{error}")
+        return ExtractionResult(point.index, status, str(error), str(error))
     except (OSError, ValueError, KeyError, RuntimeError) as error:
+        write_process_console(f"Result: ERROR\n{error}")
         return ExtractionResult(point.index, "ERROR", str(error), str(error))

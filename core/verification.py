@@ -148,6 +148,7 @@ if metal1_test_width is not None:
     top.shapes(layout.layer(68, 20)).insert(pya.Box(x, 0, x + width, height))
     metadata["metal1_test_width"] = metal1_test_width
 layout.write(output)
+print(f"GDS generated: {output}", flush=True)
 if metadata is not None:
     write_metadata(Path(output), metadata)
 if preview:

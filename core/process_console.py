@@ -1,4 +1,4 @@
-"""Optional console output for external EDA processes."""
+"""Optional console output for EDA processes and in-process backends."""
 
 import shlex
 import subprocess
@@ -24,6 +24,12 @@ def capture_process_console(write):
         yield
     finally:
         _sink.reset(token)
+
+
+def write_process_console(message: str) -> None:
+    write = _sink.get()
+    if write is not None:
+        write(message)
 
 
 def command_entry(command, cwd=None, env=None):

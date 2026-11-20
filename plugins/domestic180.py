@@ -4,6 +4,7 @@ from pathlib import Path
 
 from core import PCell, PDK, Parameter
 from core.domestic180_verification import is_domestic180
+from core.process_console import write_process_console
 from .base import PDKPlugin
 
 
@@ -26,4 +27,7 @@ class Domestic180Plugin(PDKPlugin):
                 ("inverter", (("wn", "0.60"), ("ln", "0.18"), ("wp", "0.60"), ("lp", "0.18"))),
             )
         ]
+        write_process_console(
+            f"[domestic180 import]\nPDK: {root.resolve()}\nPCells: " + ", ".join(cell.name for cell in cells)
+        )
         return PDK(None, "domestic180", str(root.resolve()), self.name, pcells=cells)
