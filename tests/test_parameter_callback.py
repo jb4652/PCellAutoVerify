@@ -23,3 +23,14 @@ def test_native_callback_updates_value_hint_and_parameter_editability():
     assert result["values"] == {"width": "0.42", "spacing": "0.3"}
     assert result["messages"] == ["width: Width was clamped"]
     assert not result["editable"]["spacing"]
+
+
+def test_inverter_callback_logs_native_stages_and_uses_geometry_constraints(capsys):
+    from core.parameter_callback import evaluate_inverter_callback
+
+    result = evaluate_inverter_callback(kdb.Layout(), "ln", {"ln": 0.10})
+    assert result["values"]["ln"] == "0.15"
+    assert result["messages"][0].startswith("ln:")
+    trace = capsys.readouterr().out
+    assert "[callback] PCellDeclaration.callback" in trace
+    assert "[coerce] ln: 0.1 → 0.15" in trace

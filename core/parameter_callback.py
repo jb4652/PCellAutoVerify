@@ -52,12 +52,29 @@ def _log_changes(stage, names, before, after):
     print(f"[{stage}] " + ("; ".join(changes) if changes else "No value changes"), flush=True)
 
 
-def evaluate_inverter_callback(overrides: dict) -> dict:
-    print("[coerce] Custom Sky130A inverter dimensions", flush=True)
-    effective = inverter_dimensions(overrides, coerce=True)
-    _log_changes("coerce", effective, [overrides.get(key) for key in effective], effective.values())
-    return {
-        "values": {key: repr(value) for key, value in effective.items()},
-        "messages": [],
-        "editable": {},
-    }
+def evaluate_inverter_callback(layout, changed: str, overrides: dict) -> dict:
+    from klayout.db import PCellDeclarationHelper
+
+    defaults = inverter_dimensions({})
+
+    class InverterParameters(PCellDeclarationHelper):
+        def __init__(self):
+            super().__init__()
+            for name, default in defaults.items():
+                self.param(name, self.TypeDouble, name, default=default, unit="µm")
+
+        def callback_impl(self, name):
+            state = getattr(self, name)
+            corrected = inverter_dimensions({name: state.value}, coerce=True)[name]
+            if corrected != state.value:
+                state.tooltip = (
+                    "The inverter uses minimum channel dimensions and a 0.005 µm grid."
+                )
+
+        def coerce_parameters_impl(self):
+            values = {name: getattr(self, name) for name in defaults}
+            for name, value in inverter_dimensions(values, coerce=True).items():
+                setattr(self, name, value)
+
+    print("[callback] Application-defined Sky130A inverter declaration", flush=True)
+    return evaluate_callback(layout, InverterParameters(), changed, overrides)

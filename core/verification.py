@@ -81,7 +81,7 @@ if changed:
 
     print(f"[parameter edit] {class_name}.{changed} = {values.get(changed)!r}", flush=True)
     if library_path and class_name == INVERTER_NAME:
-        result = evaluate_inverter_callback(values)
+        result = evaluate_inverter_callback(layout, changed, values)
     else:
         if library_path:
             from core.sky130_library import load_library
