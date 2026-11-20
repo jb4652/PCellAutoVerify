@@ -18,23 +18,48 @@ from .sky130_nmos import MOS_PCELL_NAMES
 
 
 @dataclass(frozen=True, slots=True)
+class Parasitic:
+    scope: str
+    name: str
+    first_node: str
+    second_node: str
+    value: str
+
+    @property
+    def kind(self) -> str:
+        return self.name[0].upper()
+
+
+@dataclass(frozen=True, slots=True)
 class RcxCounts:
     model: str
     mos: int
     resistors: int
     capacitors: int
     all_models_present: bool = True
+    parasitics: tuple[Parasitic, ...] = ()
 
     @property
     def status(self) -> str:
         return "PASS_BASIC" if self.mos and self.all_models_present else "FAIL"
 
     def describe(self) -> str:
-        return (
-            f"Expected MOS model: {self.model}\nMOS instances: {self.mos}\n"
-            f"Resistors: {self.resistors}\nCapacitors: {self.capacitors}\n\n"
-            "Basic check: verifies the expected MOS models. Zero resistor or capacitor counts are shown as extracted."
-        )
+        lines = [
+            f"Expected MOS model: {self.model}",
+            f"MOS instances: {self.mos}",
+            f"Resistors: {self.resistors}",
+            f"Capacitors: {self.capacitors}",
+            "",
+            "Basic check: verifies the expected MOS models.",
+        ]
+        for kind, title, unit in (("R", "Resistor details", "Ω"), ("C", "Capacitor details", "F")):
+            lines.extend(("", f"{title} ({unit}, original SPICE notation)"))
+            entries = [
+                f"  {item.scope}/{item.name}: {item.first_node} ↔ {item.second_node} = {item.value}"
+                for item in self.parasitics if item.kind == kind
+            ]
+            lines.extend(entries or ("  None extracted",))
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,20 +142,48 @@ def _compare_lvs(directory: Path, setup: Path, top: str, prefix: str = "nmos") -
     return "ERROR", f"Netgen did not report a conclusive comparison\n{content}"
 
 
-def _count_rcx(spice: Path, models: tuple[str, ...]) -> RcxCounts:
+def _spice_statements(text: str):
+    statement = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("*"):
+            continue
+        if line.startswith("+") and statement:
+            statement += " " + line[1:].strip()
+        else:
+            if statement:
+                yield statement
+            statement = line
+    if statement:
+        yield statement
+
+
+def count_rcx(spice: Path, models: tuple[str, ...]) -> RcxCounts:
     text = spice.read_text(encoding="utf-8", errors="replace")
     model_counts = dict.fromkeys((model.casefold() for model in models), 0)
-    for line in text.splitlines():
-        words = line.split()
-        if len(words) >= 6 and words[0][0].lower() in ("m", "x") and words[5].casefold() in model_counts:
+    scopes = []
+    parasitics = []
+    for statement in _spice_statements(text):
+        words = statement.split()
+        token = words[0].casefold()
+        if token == ".subckt" and len(words) > 1:
+            scopes.append(words[1])
+        elif token == ".ends" and scopes:
+            scopes.pop()
+        elif len(words) >= 4 and token[0] in ("r", "c"):
+            parasitics.append(Parasitic(
+                "/".join(scopes) or "(top)", words[0], words[1], words[2], " ".join(words[3:]),
+            ))
+        elif len(words) >= 6 and token[0] in ("m", "x") and words[5].casefold() in model_counts:
             model_counts[words[5].casefold()] += 1
-    resistors = len(re.findall(r"^\s*R\S+\s+\S+\s+\S+\s+\S+", text, re.I | re.M))
-    capacitors = len(re.findall(r"^\s*C\S+\s+\S+\s+\S+\s+\S+", text, re.I | re.M))
-    return RcxCounts(", ".join(models), sum(model_counts.values()), resistors, capacitors, all(model_counts.values()))
-
+    return RcxCounts(
+        ", ".join(models), sum(model_counts.values()),
+        sum(item.kind == "R" for item in parasitics), sum(item.kind == "C" for item in parasitics),
+        all(model_counts.values()), tuple(parasitics),
+    )
 
 def summarize_rcx(spice: Path, model: str) -> tuple[str, str]:
-    counts = _count_rcx(spice, (model,))
+    counts = count_rcx(spice, (model,))
     return counts.status, counts.describe()
 
 
@@ -187,7 +240,7 @@ def run_mos_extraction(pdk_root: Path, point: GeneratedLayout, mode: str) -> Ext
                 summary = "Netlist mismatch"
             return ExtractionResult(point.index, status, f"Files: {directory}\n\n{details}", summary)
 
-        counts = _count_rcx(spice, models)
+        counts = count_rcx(spice, models)
         return ExtractionResult(
             point.index, counts.status, f"Files: {directory}\n\n{counts.describe()}",
             "Expected MOS models found" if counts.all_models_present else "Expected MOS model missing",

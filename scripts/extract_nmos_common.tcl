@@ -52,6 +52,33 @@ if {[catch {
         error "No SPICE output was written: $spice_file"
     }
     puts "SPICE_OUTPUT=$spice_file"
+    if {$extraction_mode eq "rcx"} {
+        set fp [open $spice_file r]
+        set netlist [read $fp]
+        close $fp
+        puts {[RCX parasitics] SPICE rows: element, first node, second node, value}
+        set scope "(top)"
+        set found 0
+        set continuation 0
+        foreach line [split $netlist "\n"] {
+            set item [string trim $line]
+            if {[regexp -nocase {^\.subckt\s+(\S+)} $item -> name]} {
+                set scope $name
+            } elseif {[regexp -nocase {^\.ends(\s|$)} $item]} {
+                set scope "(top)"
+            }
+            if {[regexp -nocase {^[rc]\S+\s+\S+\s+\S+\s+\S+} $item]} {
+                puts "  \[$scope\] $item"
+                set found 1
+                set continuation 1
+            } elseif {$continuation && [string match +* $item]} {
+                puts "    $item"
+            } else {
+                set continuation 0
+            }
+        }
+        if {!$found} {puts "  None extracted"}
+    }
 } message]} {
     puts stderr "Sky130A extraction failed: $message"
     exit 1

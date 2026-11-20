@@ -10,7 +10,7 @@ from klayout import db as kdb
 from pdks.domestic180.pcells import CONTACT, GATE, METAL, N_ACTIVE, N_BODY, PIN, P_ACTIVE, P_BODY
 
 from .models import GeneratedLayout
-from .nmos_extraction import ExtractionResult, RcxCounts
+from .nmos_extraction import ExtractionResult, count_rcx
 from .process_console import write_process_console
 
 
@@ -203,13 +203,9 @@ def run_extraction(root: Path, point: GeneratedLayout, mode: str) -> ExtractionR
             parasitics.append(f"R{index} {net} {internal} {squares * rules['metal_ohms_per_square']:.6g}")
             parasitics.append(f"C{index} {internal} 0 {area * rules['metal_ff_per_um2']:.6g}f")
         routed = [Device(d.model, tuple(extracted_nets[pin] for pin in d.pins), d.width, d.length) for d in devices]
-        (directory / "estimated_rcx.spice").write_text(_spice(routed, nets, parasitics), encoding="utf-8")
-        extracted_models = {device.model for device in devices}
-        expected_models = {device.model for device in reference}
-        counts = RcxCounts(
-            ", ".join(sorted(extracted_models)), len(devices), len(nets), len(nets),
-            expected_models.issubset(extracted_models),
-        )
+        spice = directory / "estimated_rcx.spice"
+        spice.write_text(_spice(routed, nets, parasitics), encoding="utf-8")
+        counts = count_rcx(spice, tuple(sorted({device.model for device in reference})))
         summary = "Geometry-based lumped RC estimates"
         details = f"{summary} from Metal1 area and perimeter.\n{counts.describe()}\nFiles: {directory}"
         write_process_console(f"Result: {counts.status}\n{details}")
