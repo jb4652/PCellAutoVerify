@@ -79,6 +79,7 @@ if changed:
     from core.parameter_callback import evaluate_callback, evaluate_inverter_callback
     from core.sky130_inverter import INVERTER_NAME
 
+    print(f"[parameter edit] {class_name}.{changed} = {values.get(changed)!r}", flush=True)
     if library_path and class_name == INVERTER_NAME:
         result = evaluate_inverter_callback(values)
     else:

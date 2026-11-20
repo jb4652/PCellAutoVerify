@@ -105,6 +105,14 @@ scripts/run_pcell.sh --pdk "$SKY130A_ROOT" --pcell nfet --gds "$GDS_FILE"
 
 也可用 `python scripts/run_pcell.py` 代替 Shell 入口。默认输出在 `output/cli/` 下，每次运行创建独立目录，写出 GDS、检查报告和 `summary.json`。可用 `--checks drc lvs` 只运行指定检查，用 `--case default` 或 `--case negative` 只运行一组。重跑界面中预期违反 DRC 的 GDS 时，使用 `--gds ... --case negative`。重跑 domestic180 的手动版图时，使用 `--gds ... --case manual --set KEY=VALUE` 提供实际生效的参数。命令退出码为 0 表示结果符合预期，包含预期的 DRC 违规。手动用例的退出码为 0 要求所选检查通过。
 
+仅运行原生参数回调和校正，并将终端记录保存为 `callback.log`：
+
+```bash
+scripts/run_pcell.sh --pdk "$SKY130A_ROOT" --pcell nfet --case manual --set l=0.10 --callback-only
+```
+
+界面中修改参数时，同样的运行记录会出现在 **Console**。日志分别记录回调和校正两个阶段，保留 PDK 原有的标准输出和错误输出。
+
 ### 直接调用 Magic 与 Netgen
 
 将 `GDS_FILE` 和 `REFERENCE_FILE` 分别设为要核对的界面 GDS 和对应检查生成的参考 SPICE 文件：
